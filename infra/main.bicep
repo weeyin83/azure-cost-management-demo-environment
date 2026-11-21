@@ -3,8 +3,9 @@ targetScope = 'subscription'
 @minLength(3)
 @maxLength(12)
 param namePrefix string
-@allowed(['uksouth'])
-param location string = 'uksouth'
+@description('Explicit Azure public-cloud region code. Verify SKU support, subscription capacity and regional costs before deployment.')
+@minLength(1)
+param location string
 param owner string = 'ContosoDemo'
 param costCentre string = 'Demo'
 @minLength(36)

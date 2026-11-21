@@ -20,6 +20,15 @@ workspace and one storage account. Subscription-scoped budgets additionally
 filter the Project tag or exact resource group. Their placement does not mean
 four extra billable resources.
 
+Deployment requires an explicit `location` Bicep parameter. Both supplied
+profiles read `CONTOSO_LOCATION`; no region is assumed. Keep the whole estate in
+the reviewed region, confirm B1/Basic SQL/ZRS support and subscription capacity,
+and recalculate its costs. Availability listings and what-if are not capacity
+reservations. No automatic region failover, SKU downgrade or relocation of
+existing resources is implemented. The fixed resource-group/deployment names
+also mean that an existing estate and its deployment history need a reviewed
+migration or cleanup approach before redeploying to another region.
+
 ```mermaid
 flowchart LR
     User["Approved filming network"] --> Customer["CustomerPortal: Razor"]

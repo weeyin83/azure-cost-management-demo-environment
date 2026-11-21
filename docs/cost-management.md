@@ -8,6 +8,12 @@ actual billing agreement, currency, tax treatment and quota before deployment.
 Turbo360's supplied free licence is assumed to add no subscription fee, but
 feature eligibility is not yet verified.
 
+UK South is the historical pricing baseline, not a required deployment region.
+Set `CONTOSO_LOCATION` explicitly and requery every relevant meter for that
+region before approving costs. No alternate-region estimate or capacity
+guarantee is implied by this table; budgets remain notification thresholds,
+not a spending cap.
+
 ## Normal monthly estimate
 
 | Charge | Meter/SKU and assumption | Net GBP |
@@ -50,7 +56,9 @@ this quiet-lab estimate as a hard ceiling.
 Reproduce and paginate the *public* query without Azure authentication:
 
 ```powershell
-$filter = [uri]::EscapeDataString("armRegionName eq 'uksouth' and priceType eq 'Consumption' and serviceName eq 'Azure App Service'")
+$region = $env:CONTOSO_LOCATION
+if ($region -cnotmatch '^[a-z][a-z0-9]+$') { throw 'Set CONTOSO_LOCATION to the region being priced.' }
+$filter = [uri]::EscapeDataString("armRegionName eq '$region' and priceType eq 'Consumption' and serviceName eq 'Azure App Service'")
 $url = "https://prices.azure.com/api/retail/prices?currencyCode=GBP&`$filter=$filter"
 $items = @()
 while ($url) {
@@ -80,7 +88,8 @@ Reference: [Retail Prices API](https://learn.microsoft.com/en-us/rest/api/cost-m
 | Another production B1 worker | GBP 50.04; still not zone resilient |
 | Temporary S3 restore, 8 charged hours | About GBP 1.52 net / 1.82 gross, not a restore-time promise |
 
-The preferred below-GBP-50 target is realistic for a quiet, bounded lab. GBP 100
+At the UK South reference rates, the preferred below-GBP-50 target is realistic
+for a quiet, bounded lab. Reassess it for the selected region. GBP 100
 is a desired ceiling, not guaranteed: logs, retained restores, traffic, extra
 resources and pricing changes can exceed it. Do not use F1 by default merely to
 achieve a cheaper headline; quotas/cold starts and no Always On weaken filming.

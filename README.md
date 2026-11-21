@@ -1,6 +1,6 @@
 # Contoso Services FinOps lab
 
-An economical UK South demonstration of native Azure Cost Management and Turbo360.
+An economical, region-configurable demonstration of native Azure Cost Management and Turbo360.
 One maintained MIT-licensed .NET 10 MVC/SQL application is reused in four roles;
 this is not four applications written from scratch. Source and attribution:
 [NOTICE.md](NOTICE.md).
@@ -42,24 +42,33 @@ ARM emulation is not a supported SQL Server configuration. Use a reviewed
 supported external SQL source for ARM instead. Docker is not installed on the
 current host, so the container has not been built or started here.
 
-First review [Microsoft's SQL Server container licence/setup](https://learn.microsoft.com/en-us/sql/linux/quickstart-install-connect-docker?view=sql-server-ver17).
-Copy `.devcontainer\.env.example` to `.devcontainer\.env`, explicitly set
-`ACCEPT_EULA=Y` if you accept the terms, and supply a unique local password.
-Generate one without putting a real password in committed configuration:
+The project owner explicitly accepted [Microsoft's SQL Server Developer
+container licence](https://learn.microsoft.com/en-us/sql/linux/quickstart-install-connect-docker?view=sql-server-ver17)
+for this environment. Community users must review those terms before using the
+SQL container. On the host, `initializeCommand` generates an ignored
+`.devcontainer/.env` **before Docker Compose reads it**, including
+`ACCEPT_EULA=Y` and a unique password from 32 OS-random bytes. Fresh Codespaces
+clones therefore do not need a pre-existing secret file. No password is printed,
+committed or sent to Azure; the Docker build context also excludes `.env`.
+The hook preserves and validates existing credentials rather than resetting
+them, including on rebuild. Back up local data and its credentials together:
+deleting `.env` while retaining SQL's data volume does not reset the database's
+existing password.
 
-```powershell
-$password = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)) + 'aA1!'
-"ACCEPT_EULA=Y`nMSSQL_SA_PASSWORD=$password" | Set-Content .\.devcontainer\.env
-Remove-Variable password
-```
-
-Only run that after accepting the licence; keep `.env` private. Passwords use
+For your own credentials, copy `.devcontainer/.env.example` to `.env` before
+opening the container and populate it explicitly. Invalid existing files fail
+with an actionable error and are not overwritten. Keep `.env` private. Passwords use
 20-128 characters from letters/digits and `+ / _ = . ! -`; quotes/semicolons are
 excluded to keep the local connection string unambiguous. `.gitignore` excludes
 real `.env` files, local credentials/parameters, build outputs and exports while
 retaining `.env.example`. Local credentials are not part of the source repository.
 
-Choose **Dev Containers: Reopen in Container**. Initial creation restores
+Choose **Dev Containers: Reopen in Container**, or create a Codespace from the
+repository. For an existing Codespace stuck in recovery, update its checkout
+with the fix and choose **Codespaces: Rebuild Container**. Host prerequisites
+include Bash and standard `od`/`tr`/`awk` utilities (present on Codespaces hosts
+and Git Bash); no additional host package installation is performed.
+Initial container creation restores
 NuGet packages, the pinned EF tool and public Bicep modules only. Opening an
 existing container does not reinstall tools. Named caches and Linux-native
 bin/obj volumes reduce Windows bind-mount I/O and avoid sharing Windows build
@@ -88,6 +97,13 @@ updates on deliberate rebuild, not byte-identical pinned-digest reproduction.
 Codespaces creation/prebuilds can consume billable quota and are not started here.
 The configuration is an intended development path, not a claim that the Windows
 test blocker or container runtime behavior has already been verified.
+
+Offline setup/preflight regression checks (no Docker or Azure access):
+
+```powershell
+bash .devcontainer/tests/initialize-env.tests.sh
+pwsh -NoProfile -File .\tests\DeploymentRegion.Tests.ps1
+```
 
 ## Local prerequisites and build
 
@@ -147,14 +163,20 @@ subscription. All authenticated reads, what-if and subsequent writes require
 their respective permission. `-WhatIf` does not eliminate preflight reads.
 
 Supply these process-local deployment inputs securely:
-`CONTOSO_PREFIX`, `CONTOSO_SQL_ADMIN_OBJECT_ID`, `CONTOSO_SQL_ADMIN_NAME`,
+`CONTOSO_LOCATION`, `CONTOSO_PREFIX`, `CONTOSO_SQL_ADMIN_OBJECT_ID`, `CONTOSO_SQL_ADMIN_NAME`,
 `CONTOSO_TENANT_ID`, `CONTOSO_BUDGET_EMAILS` (comma-separated).
+`CONTOSO_LOCATION` is required for both Bicep profiles and the Inspect/Create
+phases; there is no default region or automatic capacity fallback. Use a
+canonical lowercase Azure region code. For example, `$env:CONTOSO_LOCATION =
+'westeurope'` selects West Europe, but is not a claim of available capacity or
+an approved replacement region.
 The SQL administrator defaults to an Entra group; use a reviewed local parameter
 file for a different supported principal type. All-zero/synthetic compilation
 values are not valid deployment inputs. Confirm GBP billing/VAT and prices;
 `-BillingCurrency GBP` is a user assertion, not proof from the billing account.
 
 ```powershell
+# Set CONTOSO_LOCATION to your reviewed region before running these commands.
 .\scripts\Deploy.ps1 -SubscriptionId $subscription -BillingCurrency GBP -Phase Inspect
 .\scripts\Deploy.ps1 -SubscriptionId $subscription -BillingCurrency GBP -Phase Create -CostEstimateReviewed
 .\scripts\Deploy.ps1 -SubscriptionId $subscription -BillingCurrency GBP -Phase Network `
@@ -168,7 +190,14 @@ values are not valid deployment inputs. Confirm GBP billing/VAT and prices;
 ```
 
 Inspect actual subscription quota, SQL provisioning/administrator rights,
-UK South stamp/runtime support and the exact what-if. Bicep creates closed app
+selected-region stamp/runtime support and the exact what-if. Preflight checks
+the region, Linux B1 (and B2 for the opt-in profile), Basic SQL and StorageV2
+Standard_ZRS support. These listings do not reserve capacity or guarantee that
+provisioning will succeed. Unsupported profiles fail rather than silently
+downgrading SKUs or storage redundancy. Existing estate groups in another
+region require reviewed migration/cleanup; changing a parameter does not move
+resources. Network, Publish and ResizeDevelopment use the existing estate and
+do not require a new region selection. Bicep creates closed app
 ingress and SQL without broad firewall rules. Network phase queries current
 possible egress and preserves existing web configuration; allow production
 portal egress to the API and only API/dev egress to the appropriate SQL server.
@@ -180,7 +209,10 @@ authentication. Shared-plan outbound IPs are not per-app authentication.
 Runtime identities have CRUD on `dbo.Todo` only; customer/reporting portals have
 no SQL identity grants. Reporting Blob access is container-scoped.
 
-The normal estimate is **GBP 38.21/month including assumed 20% VAT**, with an
-operating allowance of GBP 40-45. Budgets notify, not cap spending. One-worker
+The **UK South reference** estimate is **GBP 38.21/month including assumed 20% VAT**,
+with an operating allowance of GBP 40-45. Reprice the selected region before
+approving deployment against the preferred GBP 50 target / GBP 100 desired
+ceiling; the UK South figures are not a quote for other regions.
+Budgets notify, not cap spending. One-worker
 B1 and Basic SQL are not zone resilient. Stopping apps does not stop plan charges.
 See the cost document for assumptions, allocation and real-data/Turbo gates.

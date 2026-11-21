@@ -1,4 +1,5 @@
 using '../main.bicep'
+param location = readEnvironmentVariable('CONTOSO_LOCATION')
 param namePrefix = readEnvironmentVariable('CONTOSO_PREFIX')
 param sqlAdministratorObjectId = readEnvironmentVariable('CONTOSO_SQL_ADMIN_OBJECT_ID')
 param sqlAdministratorLogin = readEnvironmentVariable('CONTOSO_SQL_ADMIN_NAME')

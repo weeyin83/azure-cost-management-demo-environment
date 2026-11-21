@@ -11,7 +11,7 @@ function Invoke-Az {
 }
 function Invoke-AzJson {
     param([Parameter(Mandatory)][string[]]$Arguments)
-    return (Invoke-Az ($Arguments + @('--output', 'json')) | ConvertFrom-Json -AsHashtable)
+    return ,(Invoke-Az ($Arguments + @('--output', 'json')) | ConvertFrom-Json -AsHashtable -NoEnumerate)
 }
 function Assert-Subscription {
     param([string]$Id)

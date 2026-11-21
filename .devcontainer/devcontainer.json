@@ -4,6 +4,7 @@
   "service": "workspace",
   "workspaceFolder": "/workspaces/contoso-finops",
   "remoteUser": "vscode",
+  "initializeCommand": "bash .devcontainer/initialize-env.sh",
   "overrideCommand": false,
   "shutdownAction": "stopCompose",
   "features": {

@@ -13,6 +13,12 @@ param(
     [string]$Dotnet = 'dotnet'
 )
 . "$PSScriptRoot\Common.ps1"
+if ($Phase -in @('Inspect', 'Create')) {
+    $location = $env:CONTOSO_LOCATION
+    if ($location -cnotmatch '^[a-z][a-z0-9]+$') {
+        throw 'Supply CONTOSO_LOCATION as an explicit lowercase Azure region code, for example westeurope. No region is selected automatically.'
+    }
+}
 Assert-Subscription $SubscriptionId
 $root = Split-Path $PSScriptRoot
 $parameters = Join-Path $root "infra\parameters\$Profile.bicepparam"
@@ -23,33 +29,56 @@ if ($Phase -in @('Inspect', 'Create')) {
         if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Supply $name securely." }
     }
     foreach ($email in $env:CONTOSO_BUDGET_EMAILS.Split(',')) { [void][System.Net.Mail.MailAddress]::new($email) }
-    $locations = Invoke-AzJson @('appservice', 'list-locations', '--subscription', $SubscriptionId,
-        '--sku', 'B1', '--linux-workers-enabled')
-    if (-not ($locations | Where-Object { $_.name -eq 'UK South' -or $_.name -eq 'uksouth' })) {
-        throw 'UK South Linux B1 availability was not confirmed.'
+    $regions = Invoke-AzJson @('account', 'list-locations', '--subscription', $SubscriptionId)
+    if (-not ($regions | Where-Object { $_.name -eq $location })) {
+        throw "The selected region '$location' was not found for this subscription."
+    }
+    $skus = @('B1')
+    if ($Profile -eq 'development-baseline') { $skus += 'B2' }
+    foreach ($sku in $skus) {
+        $locations = Invoke-AzJson @('appservice', 'list-locations', '--subscription', $SubscriptionId,
+            '--sku', $sku, '--linux-workers-enabled')
+        if (-not ($locations | Where-Object { ($_.name -replace '\s', '').ToLowerInvariant() -eq $location })) {
+            throw "Linux $sku availability in '$location' was not confirmed."
+        }
     }
     $runtimes = Invoke-AzJson @('webapp', 'list-runtimes', '--os', 'linux')
     if ('DOTNETCORE:10.0' -notin $runtimes) { throw 'App Service .NET 10 Linux runtime was not confirmed.' }
-    $editions = Invoke-AzJson @('sql', 'db', 'list-editions', '--subscription', $SubscriptionId, '--location', 'uksouth')
-    if (-not ($editions | Where-Object { $_.name -eq 'Basic' })) { throw 'UK South Basic SQL availability was not confirmed.' }
+    $editions = Invoke-AzJson @('sql', 'db', 'list-editions', '--subscription', $SubscriptionId, '--location', $location)
+    if (-not ($editions | Where-Object { $_.name -eq 'Basic' })) { throw "Basic SQL availability in '$location' was not confirmed." }
+    $storageSkus = Invoke-AzJson @('storage', 'account', 'list-skus', '--subscription', $SubscriptionId)
+    $zrsSkus = @($storageSkus | Where-Object {
+        $_.name -eq 'Standard_ZRS' -and $_.kind -eq 'StorageV2' -and $location -in $_.locations
+    })
+    if ($zrsSkus.Count -eq 0) { throw "StorageV2 Standard_ZRS availability in '$location' was not confirmed." }
+    foreach ($sku in $zrsSkus) {
+        foreach ($restriction in $sku.restrictions) {
+            if ($restriction.type -ne 'Location' -or -not $restriction.values -or $location -in $restriction.values) {
+                throw "Standard_ZRS has a subscription restriction requiring review for '$location'."
+            }
+        }
+    }
     $groups = Invoke-AzJson @('group', 'list', '--subscription', $SubscriptionId)
     foreach ($group in $groups | Where-Object { $_.name -in @('rg-finops-production','rg-finops-development','rg-finops-shared') }) {
         Assert-ProjectGroup $SubscriptionId $group.name
+        if ($group.location -ne $location) {
+            throw "Existing group '$($group.name)' is in '$($group.location)', not '$location'. Review migration or cleanup before changing the estate's region."
+        }
         $resources = Invoke-AzJson @('resource', 'list', '--subscription', $SubscriptionId, '--resource-group', $group.name)
         if ($resources | Where-Object { $_.name -notlike "$($env:CONTOSO_PREFIX)*" -and $_.type -notmatch 'roleAssignments' }) {
             throw 'Existing resources do not match the selected prefix. Review before redeployment.'
         }
     }
-    [void](Invoke-Az @('deployment','sub','validate','--subscription',$SubscriptionId,'--location','uksouth',
+    [void](Invoke-Az @('deployment','sub','validate','--subscription',$SubscriptionId,'--location',$location,
         '--parameters',$parameters))
-    Write-Output (Invoke-Az @('deployment','sub','what-if','--subscription',$SubscriptionId,'--location','uksouth',
+    Write-Output (Invoke-Az @('deployment','sub','what-if','--subscription',$SubscriptionId,'--location',$location,
         '--parameters',$parameters))
     if ($Phase -eq 'Create') {
         if (-not $CostEstimateReviewed -or ($Profile -eq 'development-baseline' -and -not $ApproveB2)) {
             throw 'Review current GBP/VAT costs explicitly; B2 requires its own approval.'
         }
-        if ($PSCmdlet.ShouldProcess($SubscriptionId, 'Create/modify billable Azure resources with CLOSED app ingress')) {
-            Write-Output (Invoke-Az @('deployment','sub','create','--subscription',$SubscriptionId,'--location','uksouth',
+        if ($PSCmdlet.ShouldProcess($SubscriptionId, "Create/modify billable Azure resources in '$location' with CLOSED app ingress")) {
+            Write-Output (Invoke-Az @('deployment','sub','create','--subscription',$SubscriptionId,'--location',$location,
                 '--name','contoso-finops','--parameters',$parameters))
         }
     }

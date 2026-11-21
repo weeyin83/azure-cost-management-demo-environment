@@ -1,0 +1,79 @@
+﻿@model TodosIndexViewModel
+
+@{
+    ViewData["Title"] = "Service orders";
+}
+
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card mb-3">
+            <div class="card-header">Request a Contoso service</div>
+            <div class="card-body">
+                <form asp-action="Create" method="post">
+                    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                    <div class="mb-3">
+                        <label asp-for="NewTodo.Description"></label>
+                        <input asp-for="NewTodo.Description" class="form-control" />
+                        <span asp-validation-for="NewTodo.Description" class="text-danger"></span>
+                    </div>
+                    <div class="mb-3">
+                        <label asp-for="NewTodo.Category"></label>
+                        <select asp-for="NewTodo.Category" class="form-select">
+                            <option>IT</option><option>Facilities</option><option>Consulting</option>
+                        </select>
+                        <span asp-validation-for="NewTodo.Category" class="text-danger"></span>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Create request</button>
+                </form>
+            </div>
+        </div>
+
+        @if (Model.Todos.Count > 0)
+        {
+            <div class="card">
+                <div class="card-header">Recent requests (up to 200)</div>
+                <div class="card-body">
+                    <table class="table mb-0">
+                        <thead>
+                            <tr>
+                                <th>Description</th>
+                                <th>Category</th>
+                                <th>Status</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var todo in Model.Todos)
+                            {
+                                <tr>
+                                    <td>@Html.DisplayFor(_ => todo.Description)</td>
+                                    <td>@todo.Category</td>
+                                    <td>
+                                        <form asp-action="Status" asp-route-id="@todo.ID" method="post" class="d-flex gap-1">
+                                            <select name="Status" class="form-select" aria-label="Status for request @todo.ID">
+                                                @foreach (var status in new[] { "Open", "InProgress", "Completed" })
+                                                {
+                                                    <option selected="@(status == todo.Status)" value="@status">@status</option>
+                                                }
+                                            </select>
+                                            <button class="btn btn-outline-primary" type="submit">Save</button>
+                                        </form>
+                                    </td>
+                                    <td class="text-end">
+                                        <form asp-action="Delete" asp-route-id="@todo.ID" method="post">
+                                            <button type="submit" class="btn btn-danger">Delete</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}

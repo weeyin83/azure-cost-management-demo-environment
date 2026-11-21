@@ -1,0 +1,57 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "ContosoFinOps.slnx"],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Test",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "ContosoFinOps.slnx"],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "Initialize LOCAL database (writes schema)",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["ef", "database", "update", "--project", "src/ContosoFinOps"],
+      "options": { "env": { "ASPNETCORE_ENVIRONMENT": "Development" } },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Run development portal",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "src/ContosoFinOps", "--launch-profile", "DevelopmentPortal"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Orders API",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "src/ContosoFinOps", "--launch-profile", "OrdersAPI"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Run customer portal",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "src/ContosoFinOps", "--launch-profile", "CustomerPortal"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Run reporting portal",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "src/ContosoFinOps", "--launch-profile", "ReportingPortal"],
+      "problemMatcher": []
+    }
+  ]
+}

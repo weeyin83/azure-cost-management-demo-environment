@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/ContosoFinOps/">
+    <Project Path="src/ContosoFinOps/DotNetCoreSqlDb.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ContosoFinOps.Tests/ContosoFinOps.Tests.csproj" />
+  </Folder>
+</Solution>

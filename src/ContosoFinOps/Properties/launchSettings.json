@@ -1,0 +1,34 @@
+{
+  "profiles": {
+    "DevelopmentPortal": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5100",
+      "environmentVariables": { "ASPNETCORE_ENVIRONMENT": "Development", "Deployment__Role": "DevelopmentPortal" }
+    },
+    "OrdersAPI": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5101",
+      "environmentVariables": { "ASPNETCORE_ENVIRONMENT": "Development", "Deployment__Role": "OrdersAPI" }
+    },
+    "CustomerPortal": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5102",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development", "Deployment__Role": "CustomerPortal",
+        "Deployment__ApiBaseUri": "http://localhost:5101/"
+      }
+    },
+    "ReportingPortal": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5103",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development", "Deployment__Role": "ReportingPortal",
+        "Deployment__ApiBaseUri": "http://localhost:5101/"
+      }
+    }
+  }
+}

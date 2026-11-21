@@ -1,0 +1,26 @@
+@model ReportingViewModel
+@{
+    ViewData["Title"] = "Service reporting";
+}
+<h1>Service reporting</h1>
+<div class="row mb-3">
+    @foreach (var item in new[] { ("All", Model.Summary.Total), ("Open", Model.Summary.Open),
+        ("In progress", Model.Summary.InProgress), ("Completed", Model.Summary.Completed) })
+    {
+        <div class="col"><div class="card p-3"><h2>@item.Item2</h2>@item.Item1</div></div>
+    }
+</div>
+<form asp-action="Export" method="post">
+    <button type="submit" class="btn btn-primary">Export latest 200 requests to CSV and Blob</button>
+</form>
+<p>Counts cover all requests; this table and export show the latest 200.</p>
+<table class="table">
+    <thead><tr><th>ID</th><th>Description</th><th>Category</th><th>Status</th><th>Updated (UTC)</th></tr></thead>
+    <tbody>
+    @foreach (var order in Model.Recent)
+    {
+        <tr><td>@order.ID</td><td>@order.Description</td><td>@order.Category</td><td>@order.Status</td>
+            <td>@order.UpdatedUtc.UtcDateTime.ToString("u")</td></tr>
+    }
+    </tbody>
+</table>

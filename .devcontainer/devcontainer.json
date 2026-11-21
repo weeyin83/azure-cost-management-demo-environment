@@ -1,0 +1,65 @@
+{
+  "name": "Contoso FinOps - .NET 10 and Bicep",
+  "dockerComposeFile": "compose.yaml",
+  "service": "workspace",
+  "workspaceFolder": "/workspaces/contoso-finops",
+  "remoteUser": "vscode",
+  "overrideCommand": false,
+  "shutdownAction": "stopCompose",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "username": "vscode",
+      "installZsh": false,
+      "installOhMyZsh": false,
+      "installOhMyZshConfig": false,
+      "upgradePackages": false
+    },
+    "ghcr.io/devcontainers/features/azure-cli:1": {
+      "version": "latest",
+      "installBicep": true,
+      "bicepVersion": "v0.46.1"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "version": "latest"
+    }
+  },
+  "remoteEnv": {
+    "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+    "DOTNET_NOLOGO": "true",
+    "ASPNETCORE_ENVIRONMENT": "Development",
+    "AZURE_CORE_CHECK_VERSION": "false",
+    "AZURE_EXTENSION_USE_DYNAMIC_INSTALL": "no",
+    "AZURE_BICEP_USE_BINARY_FROM_PATH": "true",
+    "ConnectionStrings__Orders": "Server=sql,1433;Database=ContosoFinOps;User ID=sa;Password=${containerEnv:MSSQL_SA_PASSWORD};Encrypt=true;TrustServerCertificate=true"
+  },
+  "postCreateCommand": "bash .devcontainer/setup-user.sh",
+  "forwardPorts": [5100, 5101, 5102, 5103],
+  "portsAttributes": {
+    "5100": { "label": "Development portal", "onAutoForward": "notify" },
+    "5101": { "label": "Orders API", "onAutoForward": "notify" },
+    "5102": { "label": "Customer portal", "onAutoForward": "notify" },
+    "5103": { "label": "Reporting portal", "onAutoForward": "notify" }
+  },
+  "hostRequirements": { "cpus": 2, "memory": "6gb", "storage": "12gb" },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csharp",
+        "ms-azuretools.vscode-bicep",
+        "ms-vscode.azurecli",
+        "ms-vscode.PowerShell",
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "GitHub.vscode-pull-request-github"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "files.watcherExclude": {
+          "**/bin/**": true,
+          "**/obj/**": true,
+          "**/.artifacts/**": true
+        }
+      }
+    }
+  }
+}

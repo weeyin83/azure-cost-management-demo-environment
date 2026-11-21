@@ -8,22 +8,30 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace ContosoFinOps.Tests;
 
 internal sealed class LabFactory(string role, HttpClient? upstream = null) : WebApplicationFactory<Program>
 {
     private readonly string database = Guid.NewGuid().ToString();
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    protected override IHost CreateHost(IHostBuilder builder)
     {
-        builder.UseEnvironment("Testing");
-        builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
+        // Minimal-hosting startup reads these settings before deferred app-configuration callbacks run.
+        builder.ConfigureHostConfiguration(config => config.AddInMemoryCollection(new Dictionary<string, string?>
         {
+            [HostDefaults.EnvironmentKey] = "Testing",
             ["Deployment:Role"] = role,
             ["Deployment:ApiBaseUri"] = "http://orders.test/",
+            ["Deployment:ReportStorageUri"] = "",
             ["ConnectionStrings:Orders"] = "Server=localhost;Database=Test;Integrated Security=true",
             ["APPLICATIONINSIGHTS_CONNECTION_STRING"] = ""
         }));
+        return base.CreateHost(builder);
+    }
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
         builder.ConfigureServices(services =>
         {
             if (role is "OrdersAPI" or "DevelopmentPortal")

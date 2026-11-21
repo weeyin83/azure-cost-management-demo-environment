@@ -43,7 +43,7 @@ as a fallback.
 | Production Basic SQL | 7-day PITR, GRS backups | No live geo replica or zone failover; Basic max 2 GB/5 DTU |
 | Development Basic SQL | 1-day PITR, LRS backups | Shorter recovery window; independent from production |
 | Report exports | Hot ZRS, private Blob; 7-day soft delete; 30-day report lifecycle | Not a backup of SQL or whole-estate resilience; soft-deleted storage still costs |
-| Application/templates | Pinned upstream source + adapted source in [GitHub](https://github.com/weeyin83/azure-cost-management-demo-environment) | Source control does not back up databases, credentials or deployment packages; no CI is configured |
+| Application/templates | Pinned upstream source + adapted source in [GitHub](https://github.com/weeyin83/azure-cost-management-demo-environment), with automated build/tests | Source control and tests do not back up databases, credentials or deployment packages |
 | Logs | Shared 30-day retention and sampling | Cap can blind monitoring; telemetry is not application data backup |
 
 Automated DTU PITR backup storage is included under the documented allowance;
@@ -85,8 +85,8 @@ trusted-service settings; they are not auto-configured merely because a private
 Retain the upstream pin, licence notices, adapted source, generated migration SQL
 and an explicitly built deployment ZIP in an approved backup location. Source
 is versioned in GitHub; ignored credentials, local data and deployment packages
-require their own secure recovery arrangements. No automatic Azure publication
-or CI pipeline is configured. Rebuild .NET 10,
+require their own secure recovery arrangements. CI runs build/tests only;
+no automatic Azure publication is configured. Rebuild .NET 10,
 rerun tests on an approved execution host, compile Bicep/profiles, then review
 deployment what-if. Republish the API before portals; do not change database
 identity/configuration implicitly during source recovery.

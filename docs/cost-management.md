@@ -48,7 +48,7 @@ workspace ingestion. Exact General Block Blob v2 meter IDs: Hot ZRS stored
 `e0fc6c22-4a23-4014-9e12-cd403a33ed48`. Thirty-day
 workspace retention adds no assumed excess
 retention. Extra backup storage/LTR, restore databases, paid scheduler, SMS,
-custom domains, CI and private networking are not included.
+custom domains, paid CI and private networking are not included.
 Health probes can add Blob property reads beyond the illustrative 10k; retain
 the operating allowance and reconcile observed volume rather than treating
 this quiet-lab estimate as a hard ceiling.

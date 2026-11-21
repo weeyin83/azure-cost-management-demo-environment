@@ -3,11 +3,27 @@ using DotNetCoreSqlDb.Configuration;
 using DotNetCoreSqlDb.Data;
 using DotNetCoreSqlDb.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 
 namespace ContosoFinOps.Tests;
 
 public class DeploymentRoleTests
 {
+    [Theory]
+    [InlineData("CustomerPortal")]
+    [InlineData("ReportingPortal")]
+    [InlineData("OrdersAPI")]
+    [InlineData("DevelopmentPortal")]
+    public void StartupUsesRequestedRoleBeforeServiceRegistration(string role)
+    {
+        using var factory = new LabFactory(role);
+        var configuration = factory.Services.GetRequiredService<IConfiguration>();
+        var deployment = factory.Services.GetRequiredService<DeploymentOptions>();
+        Assert.Equal(role, configuration["Deployment:Role"]);
+        Assert.Equal(role, deployment.Role.ToString());
+        Assert.Equal(role is "OrdersAPI" or "DevelopmentPortal", deployment.UsesSql);
+    }
+
     [Theory]
     [InlineData("CustomerPortal", "/api/orders")]
     [InlineData("ReportingPortal", "/api/orders")]

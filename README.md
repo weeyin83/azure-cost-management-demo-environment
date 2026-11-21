@@ -25,6 +25,7 @@ Deployment remains a separate approval gate, not an implied next action.
 | `scripts` | Manual, subscription-explicit inspection/deployment/recovery/cleanup |
 | `tests\ContosoFinOps.Tests` | API, role isolation, HTTP dependency, anti-forgery and CSV tests |
 | `.devcontainer` | .NET 10/Bicep development environment and private local SQL Server |
+| `.github/workflows/tests.yml` | Automated .NET build/tests on a standard GitHub-hosted Linux runner; no Azure deployment |
 | `docs` | [Architecture](docs/architecture.md), [costs](docs/cost-management.md), [recovery](docs/recovery-and-cleanup.md) |
 
 ## Dev container
@@ -122,6 +123,14 @@ Use .NET SDK 10, PowerShell 7.2+, Azure CLI with an approved Bicep component, an
 SQL Server LocalDB or another explicitly configured development SQL instance.
 Do not install prerequisites, change execution policy or create Azure resources
 as a workaround without permission. No Git repository or CI/CD is required.
+
+The optional GitHub Actions workflow runs on main pushes, pull requests and
+manual dispatch. It restores the pinned EF tool and packages, builds/tests the
+solution, and checks credential initialization. It has read-only repository
+permissions and no Azure login or secrets. Application integration tests use
+isolated in-memory databases and in-process HTTP hosts, not the real local SQL
+container or Azure resources. Test role configuration is supplied before
+minimal-hosting startup reads it, rather than through late configuration callbacks.
 
 ```powershell
 dotnet tool restore

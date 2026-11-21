@@ -10,10 +10,12 @@ framework-dependent Linux and excludes those Windows native binaries.
 
 Source repository: [weeyin83/azure-cost-management-demo-environment](https://github.com/weeyin83/azure-cost-management-demo-environment).
 
-**Status:** local application/infrastructure/scripts exist. The solution builds
-and EF migration SQL can be generated offline. This host's Application Control
-blocks the test runner from loading the compiled application; automated runtime
-tests have NOT passed. No Azure resources have been deployed or validated.
+**Status:** application/infrastructure/scripts exist. The solution builds and
+all **21 application integration tests pass on Linux**
+([verified CI run](https://github.com/weeyin83/azure-cost-management-demo-environment/actions/runs/44936675095)).
+These use in-memory databases/in-process HTTP, not live SQL or Azure. This
+Windows host's Application Control still blocks its local test runner.
+EF migration SQL can be generated offline. No Azure resources have been deployed or validated.
 Deployment remains a separate approval gate, not an implied next action.
 
 ## Layout
@@ -96,8 +98,8 @@ data. Deliberately removing its named SQL volume destroys that local database;
 do not use blanket volume pruning. SDK/image and feature-major tags receive
 updates on deliberate rebuild, not byte-identical pinned-digest reproduction.
 Codespaces creation/prebuilds can consume billable quota and are not started here.
-The configuration is an intended development path, not a claim that the Windows
-test blocker or container runtime behavior has already been verified.
+The Linux CI suite verifies application behavior with isolated test hosts, not
+the Codespaces SQL container, Windows execution policy or live Azure behavior.
 
 If an existing container reports unauthorized access to
 `/home/vscode/.nuget/NuGet/NuGet.Config`, update the checkout and rerun

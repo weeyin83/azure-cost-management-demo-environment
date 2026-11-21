@@ -91,12 +91,13 @@ rerun tests on an approved execution host, compile Bicep/profiles, then review
 deployment what-if. Republish the API before portals; do not change database
 identity/configuration implicitly during source recovery.
 
-Current local evidence: solution build passes without warnings; EF reports no
-pending model changes and emits offline idempotent SQL. Runtime test execution
-is blocked by this Windows host's Application Control when loading the copied
-application assembly. No policy relaxation, signing/trust workaround or alternate
-host deployment was attempted. The app, local SQL migrations, managed identity,
-Blob export, ingress and Turbo trial remain unverified at runtime.
+Current evidence: the Linux CI build has zero warnings/errors and all 21
+application integration tests pass with in-memory databases and in-process HTTP
+([CI run](https://github.com/weeyin83/azure-cost-management-demo-environment/actions/runs/44936675095)).
+EF reports no pending model changes and emits offline idempotent SQL.
+This Windows host's local test execution remains blocked by Application Control;
+no Windows policy or trust changes were made. Real SQL migrations, managed
+identity, Blob export, ingress and the Turbo trial remain unverified at runtime.
 
 Later Stage 4 checks include valid/invalid CRUD, anti-forgery, role exclusion,
 production/dev isolation, retry/dependency errors, SQL grants, Blob uploads,

@@ -16,6 +16,8 @@ fi
 unset password
 
 paths=(
+    "$HOME/.nuget"
+    "$HOME/.nuget/NuGet"
     "$HOME/.nuget/packages"
     "$HOME/.bicep"
     "$PWD/src/ContosoFinOps/bin"
@@ -23,10 +25,26 @@ paths=(
     "$PWD/tests/ContosoFinOps.Tests/bin"
     "$PWD/tests/ContosoFinOps.Tests/obj"
 )
+owner="$(id -u):$(id -g)"
 for path in "${paths[@]}"; do
-    mkdir -p "$path"
-    sudo chown "$(id -u):$(id -g)" "$path"
+    if sudo test -L "$path"; then
+        printf "Refusing to change ownership of a symbolic-link directory: %s\n" "$path" >&2
+        exit 1
+    fi
+    sudo mkdir -p -- "$path"
+    sudo chown -- "$owner" "$path"
+    sudo chmod u+rwx -- "$path"
 done
+
+nuget_config="$HOME/.nuget/NuGet/NuGet.Config"
+if [[ -e "$nuget_config" || -L "$nuget_config" ]]; then
+    if [[ ! -f "$nuget_config" || -L "$nuget_config" ]]; then
+        printf "NuGet.Config must be a regular local file; existing configuration was preserved.\n" >&2
+        exit 1
+    fi
+    sudo chown -- "$owner" "$nuget_config"
+    sudo chmod u+rw -- "$nuget_config"
+fi
 
 mkdir -p "$HOME/.config/contoso-finops"
 cat > "$HOME/.config/contoso-finops/env.sh" <<'EOF'

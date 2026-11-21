@@ -2,6 +2,13 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Restore tools",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["tool", "restore"],
+      "problemMatcher": "$msCompile"
+    },
+    {
       "label": "Build",
       "type": "process",
       "command": "dotnet",
@@ -19,6 +26,8 @@
     },
     {
       "label": "Initialize LOCAL database (writes schema)",
+      "dependsOn": "Restore tools",
+      "dependsOrder": "sequence",
       "type": "process",
       "command": "dotnet",
       "args": ["ef", "database", "update", "--project", "src/ContosoFinOps"],

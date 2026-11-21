@@ -98,10 +98,21 @@ Codespaces creation/prebuilds can consume billable quota and are not started her
 The configuration is an intended development path, not a claim that the Windows
 test blocker or container runtime behavior has already been verified.
 
+If an existing container reports unauthorized access to
+`/home/vscode/.nuget/NuGet/NuGet.Config`, update the checkout and rerun
+`bash .devcontainer/setup-user.sh`. Setup repairs the NuGet parent directories,
+cache mount roots and any existing NuGet.Config for the container user before
+restoring tools/packages. It preserves configuration contents and does not
+recursively change the home directory, remove caches or touch SQL data. New
+containers receive the repair through the normal creation hook.
+The local database task also runs **Restore tools** first, so `dotnet-ef` is
+available before migrations are attempted.
+
 Offline setup/preflight regression checks (no Docker or Azure access):
 
 ```powershell
 bash .devcontainer/tests/initialize-env.tests.sh
+bash .devcontainer/tests/setup-user.tests.sh
 pwsh -NoProfile -File .\tests\DeploymentRegion.Tests.ps1
 ```
 

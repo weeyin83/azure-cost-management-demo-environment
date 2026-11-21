@@ -79,6 +79,11 @@ artifacts. SQL has a persistent data volume, a 2 GB SQL memory target/3 GB
 container limit and no published host port. VS Code forwards application ports
 5100-5103; keep Codespaces ports private.
 
+The local apps use HTTP, so forwarded ports explicitly use the HTTP backend
+protocol. The Codespaces browser URL still uses HTTPS. If that URL returns 502
+while the app works locally, use the VS Code Ports tab to change the affected
+port's protocol to HTTP, then reopen it in the browser.
+
 Use the explicit **Initialize LOCAL database (writes schema)** task once, then
 **Build**, **Test**, and the run tasks. Run Orders API before the customer/reporting
 portals. All local roles share the `ContosoFinOps` development DB; Azure

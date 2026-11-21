@@ -36,10 +36,10 @@
   "postCreateCommand": "bash .devcontainer/setup-user.sh",
   "forwardPorts": [5100, 5101, 5102, 5103],
   "portsAttributes": {
-    "5100": { "label": "Development portal", "onAutoForward": "notify" },
-    "5101": { "label": "Orders API", "onAutoForward": "notify" },
-    "5102": { "label": "Customer portal", "onAutoForward": "notify" },
-    "5103": { "label": "Reporting portal", "onAutoForward": "notify" }
+    "5100": { "label": "Development portal", "onAutoForward": "notify", "protocol": "http" },
+    "5101": { "label": "Orders API", "onAutoForward": "notify", "protocol": "http" },
+    "5102": { "label": "Customer portal", "onAutoForward": "notify", "protocol": "http" },
+    "5103": { "label": "Reporting portal", "onAutoForward": "notify", "protocol": "http" }
   },
   "hostRequirements": { "cpus": 2, "memory": "6gb", "storage": "12gb" },
   "customizations": {

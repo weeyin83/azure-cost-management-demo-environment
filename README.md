@@ -194,6 +194,10 @@ Region and storage SKU discovery use subscription-scoped ARM REST requests:
 `az storage account list-skus` is not an Azure CLI command.
 Runtime discovery accepts both legacy runtime strings and runtime objects with
 a `config` field returned by newer Azure CLI versions.
+The managed-identity lookup uses `az ad sp show --id` without `--subscription`:
+it is an Entra directory operation in the current CLI login's tenant. Sign in to
+the deployment's tenant; the initializer verifies the returned identity before
+writing to SQL. Azure resource discovery remains explicitly subscription-scoped.
 
 Supply these process-local deployment inputs securely:
 `CONTOSO_LOCATION`, `CONTOSO_PREFIX`, `CONTOSO_SQL_ADMIN_OBJECT_ID`, `CONTOSO_SQL_ADMIN_NAME`,

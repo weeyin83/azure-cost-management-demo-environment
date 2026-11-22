@@ -12,7 +12,7 @@ $estate = Get-Estate $SubscriptionId
 $server = if ($Environment -eq 'Production') { $estate.sqlServers.production } else { $estate.sqlServers.development }
 $app = if ($Environment -eq 'Production') { $estate.productionApplications | Where-Object { $_.role -eq 'OrdersAPI' } } else { $estate.developmentApplication }
 if ([string]::IsNullOrWhiteSpace($app.principalId)) { throw 'The SQL application has no managed identity.' }
-$principal = Invoke-AzJson @('ad','sp','show','--subscription',$SubscriptionId,'--id',$app.principalId)
+$principal = Invoke-AzJson @('ad','sp','show','--id',$app.principalId)
 if ($principal.id -ne $app.principalId -or $principal.displayName -ne $app.name -or
     $principal.servicePrincipalType -ne 'ManagedIdentity' -or
     [string]::IsNullOrWhiteSpace($principal.appId)) {

@@ -13,6 +13,8 @@ $apps = @(
 $development = @{ name = 'test-development'; principalId = $subscription }
 $staleOutputs = $false
 $missingCustomer = $false
+$runtimeName = 'test-orders'
+$runtimeServer = 'test-prod'
 
 function Assert-NativePath {
     param([string]$Path, [switch]$Existing)
@@ -93,7 +95,11 @@ function az {
             '{}'
         }
         'ad sp show' {
-            @{ id = $subscription; displayName = 'test-orders'; servicePrincipalType = 'ManagedIdentity'; appId = $subscription } |
+            if ('--subscription' -in $arguments -or
+                $arguments[[Array]::IndexOf($arguments, '--id') + 1] -ne $subscription) {
+                throw 'Directory lookups must use the verified managed identity ID without --subscription.'
+            }
+            @{ id = $subscription; displayName = $runtimeName; servicePrincipalType = 'ManagedIdentity'; appId = $subscription } |
                 ConvertTo-Json -Compress
         }
         default { throw "Unexpected mocked Azure command: $command" }
@@ -109,6 +115,11 @@ function Mock-Dotnet {
         Assert-NativePath $arguments[[Array]::IndexOf($arguments, '-o') + 1]
     } elseif ($arguments[0] -eq 'run') {
         Assert-NativePath $arguments[[Array]::IndexOf($arguments, '--project') + 1] -Existing
+        if ("--runtime-user=$runtimeName" -notin $arguments -or
+            "--server=$runtimeServer.database.windows.net" -notin $arguments -or
+            "--runtime-client-id=$subscription" -notin $arguments) {
+            throw 'Database initialization must use the verified identity and selected environment server.'
+        }
         $directory = @($arguments | Where-Object { $_ -like '--sql-script-directory=*' })
         if ($directory.Count -ne 1) { throw 'Missing SQL script directory.' }
         Assert-NativePath ($directory[0] -replace '^--sql-script-directory=', '') -Existing
@@ -128,14 +139,18 @@ foreach ($phase in @('Network', 'ResizeDevelopment', 'Publish')) {
         -ApprovedAddresses @('203.0.113.20/32') -BootstrapAdministratorAddress '203.0.113.20' `
         -DatabaseInitializationConfirmed -Dotnet Mock-Dotnet -Confirm:$false | Out-Null
 }
-& (Join-Path $root 'scripts/Initialize-Database.ps1') -SubscriptionId $subscription `
-    -Environment Production -Dotnet Mock-Dotnet -Confirm:$false | Out-Null
+foreach ($environment in @('Production', 'Development')) {
+    $runtimeName = if ($environment -eq 'Production') { 'test-orders' } else { 'test-development' }
+    $runtimeServer = if ($environment -eq 'Production') { 'test-prod' } else { 'test-dev' }
+    & (Join-Path $root 'scripts/Initialize-Database.ps1') -SubscriptionId $subscription `
+        -Environment $environment -Dotnet Mock-Dotnet -Confirm:$false | Out-Null
+}
 if (@($calls | Where-Object { ($_ | Select-Object -First 3) -join ' ' -eq 'deployment group create' }).Count -ne 3) {
     throw 'Expected network deployments for both groups and a development resize.'
 }
 if (@($calls | Where-Object { ($_ | Select-Object -First 2) -join ' ' -eq 'webapp deploy' }).Count -ne 4 -or
-    $dotnetCalls.Count -ne 2 -or $archiveCalls.Count -ne 1) {
-    throw 'Expected publication to four apps and database initialization.'
+    $dotnetCalls.Count -ne 3 -or $archiveCalls.Count -ne 1) {
+    throw 'Expected publication to four apps and initialization of both databases.'
 }
 $staleOutputs = $true
 $calls.Clear()

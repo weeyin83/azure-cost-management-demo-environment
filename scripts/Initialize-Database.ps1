@@ -6,7 +6,7 @@ param(
     [switch]$Seed,
     [string]$Dotnet = 'dotnet'
 )
-. "$PSScriptRoot\Common.ps1"
+. (Join-Path $PSScriptRoot 'Common.ps1')
 Assert-Subscription $SubscriptionId
 $estate = Get-Estate $SubscriptionId
 $server = if ($Environment -eq 'Production') { $estate.sqlServers.production } else { $estate.sqlServers.development }
@@ -21,8 +21,8 @@ if ($principal.id -ne $app.principalId -or $principal.displayName -ne $app.name 
 if ($PSCmdlet.ShouldProcess("$server/orders", 'Apply reviewed schema, least-privilege identity grants and optional seed as Entra administrator')) {
     $root = Split-Path $PSScriptRoot
     $seedValue = if ($Seed) { 'true' } else { 'false' }
-    & $Dotnet run --project "$root\src\ContosoFinOps\DotNetCoreSqlDb.csproj" --no-launch-profile -- `
+    & $Dotnet run --project (Join-Path $root 'src/ContosoFinOps/DotNetCoreSqlDb.csproj') --no-launch-profile -- `
         --initialize-database=true "--server=$server.database.windows.net" "--runtime-user=$($app.name)" `
-        "--runtime-client-id=$($principal.appId)" "--sql-script-directory=$PSScriptRoot\sql" "--seed=$seedValue"
+        "--runtime-client-id=$($principal.appId)" "--sql-script-directory=$(Join-Path $PSScriptRoot 'sql')" "--seed=$seedValue"
     if ($LASTEXITCODE -ne 0) { throw 'Database initialization failed; no runtime/schema success is claimed.' }
 }

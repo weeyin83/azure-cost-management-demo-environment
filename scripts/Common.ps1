@@ -38,6 +38,35 @@ function Get-Estate {
     foreach ($group in @('rg-finops-production', 'rg-finops-development', 'rg-finops-shared')) {
         Assert-ProjectGroup $Subscription $group
     }
+    foreach ($environment in @('Production', 'Development')) {
+        $group = "rg-finops-$($environment.ToLowerInvariant())"
+        $inventory = Invoke-AzJson @('webapp', 'list', '--subscription', $Subscription, '-g', $group)
+        $apps = @($inventory | Where-Object { $_.tags.Project -eq 'ContosoFinOpsDemo' })
+        $roles = @(if ($environment -eq 'Production') { 'OrdersAPI', 'CustomerPortal', 'ReportingPortal' } else { 'DevelopmentPortal' })
+        if ($apps.Count -ne $roles.Count) { throw "Expected $($roles.Count) project apps in $group; found $($apps.Count)." }
+        $resolved = @(
+            foreach ($role in $roles) {
+                $matches = @($apps | Where-Object { $_.tags.Application -eq $role -and $_.tags.Environment -eq $environment })
+                if ($matches.Count -ne 1) { throw "Expected exactly one tagged $role app in $group; found $($matches.Count)." }
+                $app = $matches[0]
+                $principalId = if ($null -ne $app.identity) { $app.identity.principalId } else { '' }
+                if ([string]::IsNullOrWhiteSpace($app.defaultHostName) -or
+                    ($role -ne 'CustomerPortal' -and [string]::IsNullOrWhiteSpace($principalId))) {
+                    throw "Missing hostname or required managed identity for $($app.name)."
+                }
+                @{ role = $role; name = $app.name; resourceId = $app.id; principalId = $principalId;
+                    endpoint = "https://$($app.defaultHostName)/" }
+            }
+        )
+        $key = if ($environment -eq 'Production') { 'productionApplications' } else { 'developmentApplication' }
+        foreach ($app in $resolved) {
+            $previous = @($result[$key] | Where-Object { $environment -eq 'Development' -or $_.role -eq $app.role })
+            if ($previous.Count -ne 1 -or $previous[0].name -ne $app.name) {
+                Write-Warning "Deployment output for $($app.role) is stale; using verified live app $($app.name)."
+            }
+        }
+        $result[$key] = if ($environment -eq 'Production') { $resolved } else { $resolved[0] }
+    }
     return $result
 }
 function Assert-Address {

@@ -12,7 +12,7 @@ param(
     [string]$BootstrapAdministratorAddress = '255.255.255.255',
     [string]$Dotnet = 'dotnet'
 )
-. "$PSScriptRoot\Common.ps1"
+. (Join-Path $PSScriptRoot 'Common.ps1')
 if ($Phase -in @('Inspect', 'Create')) {
     $location = $env:CONTOSO_LOCATION
     if ($location -cnotmatch '^[a-z][a-z0-9]+$') {
@@ -21,7 +21,7 @@ if ($Phase -in @('Inspect', 'Create')) {
 }
 Assert-Subscription $SubscriptionId
 $root = Split-Path $PSScriptRoot
-$parameters = Join-Path $root "infra\parameters\$Profile.bicepparam"
+$parameters = Join-Path $root "infra/parameters/$Profile.bicepparam"
 
 if ($Phase -in @('Inspect', 'Create')) {
     if ($env:CONTOSO_PREFIX -notmatch '^[a-z][a-z0-9]{2,11}$') { throw 'CONTOSO_PREFIX must be 3-12 lowercase alphanumeric characters starting with a letter.' }
@@ -29,7 +29,9 @@ if ($Phase -in @('Inspect', 'Create')) {
         if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Supply $name securely." }
     }
     foreach ($email in $env:CONTOSO_BUDGET_EMAILS.Split(',')) { [void][System.Net.Mail.MailAddress]::new($email) }
-    $regions = Invoke-AzJson @('account', 'list-locations', '--subscription', $SubscriptionId)
+    $regions = Invoke-AzJson @('rest', '--method', 'get', '--subscription', $SubscriptionId,
+        '--url', "https://management.azure.com/subscriptions/$SubscriptionId/locations?api-version=2022-12-01",
+        '--query', 'value')
     if (-not ($regions | Where-Object { $_.name -eq $location })) {
         throw "The selected region '$location' was not found for this subscription."
     }
@@ -43,10 +45,15 @@ if ($Phase -in @('Inspect', 'Create')) {
         }
     }
     $runtimes = Invoke-AzJson @('webapp', 'list-runtimes', '--os', 'linux')
-    if ('DOTNETCORE:10.0' -notin $runtimes) { throw 'App Service .NET 10 Linux runtime was not confirmed.' }
+    $runtimeConfigs = @($runtimes | ForEach-Object {
+        if ($_ -is [string]) { $_ } else { $_.config }
+    })
+    if ('DOTNETCORE:10.0' -notin $runtimeConfigs) { throw 'App Service .NET 10 Linux runtime was not confirmed.' }
     $editions = Invoke-AzJson @('sql', 'db', 'list-editions', '--subscription', $SubscriptionId, '--location', $location)
     if (-not ($editions | Where-Object { $_.name -eq 'Basic' })) { throw "Basic SQL availability in '$location' was not confirmed." }
-    $storageSkus = Invoke-AzJson @('storage', 'account', 'list-skus', '--subscription', $SubscriptionId)
+    $storageSkus = Invoke-AzJson @('rest', '--method', 'get', '--subscription', $SubscriptionId,
+        '--url', "https://management.azure.com/subscriptions/$SubscriptionId/providers/Microsoft.Storage/skus?api-version=2023-05-01",
+        '--query', 'value')
     $zrsSkus = @($storageSkus | Where-Object {
         $_.name -eq 'Standard_ZRS' -and $_.kind -eq 'StorageV2' -and $location -in $_.locations
     })
@@ -127,7 +134,7 @@ if ($Phase -eq 'Network') {
             @{ parameters=@{ sites=@{value=$sites}; sqlServerName=@{value=$server}; sqlOutboundAddresses=@{value=$sqlIps};
                 bootstrapAdministratorAddress=@{value=$BootstrapAdministratorAddress} } } | ConvertTo-Json -Depth 100 | Set-Content $file
             $arguments = @('deployment','group','what-if','--subscription',$SubscriptionId,'-g',$group,
-                '--template-file',"$root\infra\modules\network-access.bicep",'--parameters',"@$file")
+                '--template-file',(Join-Path $root 'infra/modules/network-access.bicep'),'--parameters',"@$file")
             Write-Output (Invoke-Az $arguments)
             if ($PSCmdlet.ShouldProcess($group, 'Apply approved ingress/egress rules (including bootstrap access state)')) {
                 $arguments[2] = 'create'
@@ -150,7 +157,7 @@ if ($Phase -eq 'ResizeDevelopment') {
         @{parameters=@{name=@{value=$estate.developmentPlanName}; tags=@{value=$plan.tags}; sku=@{value=$sku};
             actionGroupId=@{value=$actionGroup[0].id}}} | ConvertTo-Json -Depth 20 | Set-Content $file
         $arguments=@('deployment','group','what-if','--subscription',$SubscriptionId,'-g','rg-finops-development',
-            '--template-file',"$root\infra\modules\app-service-plan.bicep",'--parameters',"@$file")
+            '--template-file',(Join-Path $root 'infra/modules/app-service-plan.bicep'),'--parameters',"@$file")
         Write-Output (Invoke-Az $arguments)
         if ($PSCmdlet.ShouldProcess($planId, "Resize development ONLY to $sku")) {
             $arguments[2]='create'
@@ -161,12 +168,12 @@ if ($Phase -eq 'ResizeDevelopment') {
 }
 if (-not $DatabaseInitializationConfirmed) { throw 'Initialize both databases and close temporary admin access before publishing.' }
 if ($PSCmdlet.ShouldProcess($SubscriptionId, 'Publish the reviewed local package to all four applications')) {
-    $publish = Join-Path $root '.artifacts\publish'
-    & $Dotnet publish "$root\src\ContosoFinOps\DotNetCoreSqlDb.csproj" -c Release -r linux-x64 `
+    $publish = Join-Path $root '.artifacts/publish'
+    & $Dotnet publish (Join-Path $root 'src/ContosoFinOps/DotNetCoreSqlDb.csproj') -c Release -r linux-x64 `
         --self-contained false -p:UseAppHost=false -o $publish
     if ($LASTEXITCODE -ne 0) { throw 'Application publication build failed.' }
-    $zip = Join-Path $root '.artifacts\contoso.zip'
-    Compress-Archive -Path "$publish\*" -DestinationPath $zip -Force
+    $zip = Join-Path $root '.artifacts/contoso.zip'
+    Compress-Archive -Path (Join-Path $publish '*') -DestinationPath $zip -Force
     $ordered = @($estate.productionApplications | Where-Object { $_.role -eq 'OrdersAPI' }) +
         @($estate.developmentApplication) + @($estate.productionApplications | Where-Object { $_.role -ne 'OrdersAPI' })
     foreach ($app in $ordered) {

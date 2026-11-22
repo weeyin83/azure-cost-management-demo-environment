@@ -13,25 +13,38 @@ function az {
     $command = ($arguments | Select-Object -First 3) -join ' '
     if ($command -like 'account show *') {
         @{ id = $subscription; environmentName = 'AzureCloud' } | ConvertTo-Json -Compress
-    } elseif ($command -like 'account list-locations *') {
-        ConvertTo-Json -InputObject @(@{ name = 'westeurope' }) -Compress
+    } elseif ($command -eq 'rest --method get') {
+        if ($arguments[[Array]::IndexOf($arguments, '--subscription') + 1] -ne $subscription -or
+            $arguments[[Array]::IndexOf($arguments, '--query') + 1] -ne 'value') {
+            throw 'REST lookups must target the explicit subscription and return the value array.'
+        }
+        $url = $arguments[[Array]::IndexOf($arguments, '--url') + 1]
+        if ($url -eq "https://management.azure.com/subscriptions/$subscription/locations?api-version=2022-12-01") {
+            ConvertTo-Json -InputObject @(@{ name = 'westeurope' }) -Compress
+        } elseif ($url -eq "https://management.azure.com/subscriptions/$subscription/providers/Microsoft.Storage/skus?api-version=2023-05-01") {
+            $restrictions = @(if ($fixture['RestrictedStorage']) {
+                @{ type = 'Location'; values = @('westeurope'); reasonCode = 'NotAvailableForSubscription' }
+            })
+            $items = @(if (-not $fixture['NoStorage']) {
+                @{ name = 'Standard_ZRS'; kind = 'StorageV2'; locations = @('westeurope'); restrictions = $restrictions }
+            })
+            ConvertTo-Json -InputObject $items -Depth 10 -Compress
+        } else {
+            throw "Unexpected mock REST URL: $url"
+        }
     } elseif ($command -like 'appservice list-locations *') {
         $sku = $arguments[[Array]::IndexOf($arguments, '--sku') + 1]
         $items = @(if ($sku -ne $fixture['UnavailableSku']) { @{ name = 'West Europe' } })
         ConvertTo-Json -InputObject $items -Compress
     } elseif ($command -eq 'webapp list-runtimes --os') {
-        ConvertTo-Json -InputObject @('DOTNETCORE:10.0') -Compress
+        $config = if ($fixture['NoDotnet10']) { 'DOTNETCORE:8.0' } else { 'DOTNETCORE:10.0' }
+        $items = @(if ($fixture['LegacyRuntimes']) { $config } else {
+            @{ config = $config; runtime = '.NET'; os = 'Linux' }
+        })
+        ConvertTo-Json -InputObject $items -Compress
     } elseif ($command -eq 'sql db list-editions') {
         $items = @(if (-not $fixture['NoSql']) { @{ name = 'Basic' } })
         ConvertTo-Json -InputObject $items -Compress
-    } elseif ($command -eq 'storage account list-skus') {
-        $restrictions = @(if ($fixture['RestrictedStorage']) {
-            @{ type = 'Location'; values = @('westeurope'); reasonCode = 'NotAvailableForSubscription' }
-        })
-        $items = @(if (-not $fixture['NoStorage']) {
-            @{ name = 'Standard_ZRS'; kind = 'StorageV2'; locations = @('westeurope'); restrictions = $restrictions }
-        })
-        ConvertTo-Json -InputObject $items -Depth 10 -Compress
     } elseif ($command -like 'group list *') {
         $items = @(if ($fixture['ExistingRegion']) {
             @{ name = 'rg-finops-production'; location = $fixture['ExistingRegion'] }
@@ -42,6 +55,11 @@ function az {
     } elseif ($command -like 'resource list *') {
         '[]'
     } elseif ($command -in @('deployment sub validate', 'deployment sub what-if', 'deployment sub create')) {
+        $parameterPath = $arguments[[Array]::IndexOf($arguments, '--parameters') + 1]
+        if (-not (Test-Path -LiteralPath $parameterPath) -or
+            (-not $IsWindows -and $parameterPath.Contains('\'))) {
+            throw "Invalid native CLI parameter path: $parameterPath"
+        }
         '{}'
     } else {
         throw "Unexpected mock CLI command: $command"
@@ -83,6 +101,9 @@ foreach ($name in $inputs.Keys) {
 }
 try {
     Invoke-Case
+    if (@($calls | Where-Object { ($_ | Select-Object -First 3) -join ' ' -eq 'rest --method get' }).Count -ne 2) {
+        throw 'Expected subscription-scoped REST location and storage SKU lookups.'
+    }
     $regionalCalls = @($calls | Where-Object {
         ($_ | Select-Object -First 3) -join ' ' -in @('sql db list-editions', 'deployment sub validate', 'deployment sub what-if')
     })
@@ -106,6 +127,14 @@ try {
     Assert-Rejected { Invoke-Case -Region 'unknownregion' } 'was not found'
     $fixture.UnavailableSku = 'B2'
     Assert-Rejected { Invoke-Case -Profile development-baseline } 'Linux B2 availability'
+    $fixture.Clear()
+    $fixture.LegacyRuntimes = $true
+    Invoke-Case
+    $fixture.NoDotnet10 = $true
+    Assert-Rejected { Invoke-Case } 'App Service .NET 10 Linux runtime'
+    $fixture.Clear()
+    $fixture.NoDotnet10 = $true
+    Assert-Rejected { Invoke-Case } 'App Service .NET 10 Linux runtime'
     $fixture.Clear()
     $fixture.NoSql = $true
     Assert-Rejected { Invoke-Case } 'Basic SQL availability'

@@ -38,7 +38,7 @@ var settings = concat([
 }] : [{ name: 'Deployment__ApiBaseUri', value: apiBaseUri }],
 role == 'ReportingPortal' ? [{ name: 'Deployment__ReportStorageUri', value: reportStorageUri }] : [])
 module app 'br/public:avm/res/web/site:0.24.0' = {
-  name: 'web-app'
+  name: '${name}-web-app'
   params: {
     name: name
     location: location

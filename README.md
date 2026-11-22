@@ -122,6 +122,7 @@ Offline setup/preflight regression checks (no Docker or Azure access):
 bash .devcontainer/tests/initialize-env.tests.sh
 bash .devcontainer/tests/setup-user.tests.sh
 pwsh -NoProfile -File .\tests\DeploymentRegion.Tests.ps1
+pwsh -NoProfile -File .\tests\DeploymentPaths.Tests.ps1
 ```
 
 ## Local prerequisites and build
@@ -188,6 +189,11 @@ Scripts do not execute on build, import, or application startup. Every cloud
 script requires the actual subscription ID; it does not change the active CLI
 subscription. All authenticated reads, what-if and subsequent writes require
 their respective permission. `-WhatIf` does not eliminate preflight reads.
+Region and storage SKU discovery use subscription-scoped ARM REST requests:
+`az account list-locations` does not support `--subscription`, and
+`az storage account list-skus` is not an Azure CLI command.
+Runtime discovery accepts both legacy runtime strings and runtime objects with
+a `config` field returned by newer Azure CLI versions.
 
 Supply these process-local deployment inputs securely:
 `CONTOSO_LOCATION`, `CONTOSO_PREFIX`, `CONTOSO_SQL_ADMIN_OBJECT_ID`, `CONTOSO_SQL_ADMIN_NAME`,
@@ -230,6 +236,17 @@ possible egress and preserves existing web configuration; allow production
 portal egress to the API and only API/dev egress to the appropriate SQL server.
 SCM permits only approved administrative CIDRs. No broad Allow Azure Services,
 public containers, SQL passwords or Entra *user-sign-in* are enabled.
+Deployment scripts construct native CLI paths for Windows and Linux. When running
+from Codespaces, approve its current public outbound IPv4 for publishing and
+temporary SQL administrator access, as well as your browser's public IPv4 for
+portal access; these may differ. Close temporary SQL administrator access after
+initialization, including when initialization fails.
+Scripts resolve application roles, endpoints and managed identities from the
+live project-tagged App Services, rather than trusting stale deployment outputs.
+Earlier deployments could report the reporting app for both portal roles because
+the nested web deployment name was reused. Updated scripts handle that existing
+estate without recreating resources; missing or ambiguous live roles fail before
+writes. New deployments use a unique nested deployment name per app.
 
 Network restriction is a trusted filming lab profile, not production customer
 authentication. Shared-plan outbound IPs are not per-app authentication.

@@ -198,6 +198,10 @@ The managed-identity lookup uses `az ad sp show --id` without `--subscription`:
 it is an Entra directory operation in the current CLI login's tenant. Sign in to
 the deployment's tenant; the initializer verifies the returned identity before
 writing to SQL. Azure resource discovery remains explicitly subscription-scoped.
+Initialization uses only the Azure CLI login, pinned to the live SQL
+administrator's tenant, not the default credential chain or an IDE account.
+SQL login error 18456 requires checking that login's SQL administrator/group
+membership; subscription Owner/Contributor access alone is insufficient.
 
 Supply these process-local deployment inputs securely:
 `CONTOSO_LOCATION`, `CONTOSO_PREFIX`, `CONTOSO_SQL_ADMIN_OBJECT_ID`, `CONTOSO_SQL_ADMIN_NAME`,

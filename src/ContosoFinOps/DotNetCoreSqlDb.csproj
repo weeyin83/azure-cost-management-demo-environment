@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="ContosoFinOps.Tests" />
     <Content Include="..\..\LICENSE.md" Link="LICENSE.md" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\NOTICE.md" Link="NOTICE.md" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\THIRD-PARTY-NOTICES.txt" Link="THIRD-PARTY-NOTICES.txt" CopyToPublishDirectory="PreserveNewest" />

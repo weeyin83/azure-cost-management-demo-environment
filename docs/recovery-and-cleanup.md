@@ -10,9 +10,22 @@ Bicep establishes Entra-only SQL administration and app identities. A contained
 database user and data-plane grants still need explicit administrator bootstrap.
 Allow the approved administrator's public IPv4 temporarily, sign in as a member
 of the configured SQL administrator group, then initialize production and
-development explicitly. The local CLI initializer authenticates via Active
-Directory Default (including the approved Azure CLI login); it does not use the
-application's runtime identity to change schema. No credentials are embedded.
+development explicitly. The local CLI initializer authenticates exclusively via
+`AzureCliCredential`, pinned to the selected SQL server's Entra administrator
+tenant. It does not use environment credentials, IDE logins or the application's
+runtime identity to change schema. The script reads the live SQL administrator
+and rejects a current CLI login in another tenant before starting .NET.
+No credentials are embedded or printed.
+
+SQL error 18456 (`Login failed for user '<token-identified principal>'`) means
+SQL rejected the token identity; it does not establish that the schema or grants
+are wrong. Run `az login --tenant <SQL-administrator-tenant-id>` with the configured
+SQL administrator, or a member of its administrator group, then retry. The script
+prints the configured administrator and tenant. Verify membership and sign in
+again after group changes. Azure subscription Owner/Contributor roles do not
+grant SQL data-plane access. If login is still rejected, verify the live SQL
+administrator configuration and account membership with the tenant administrator;
+do not automatically replace the administrator or grant broader permissions.
 
 The generated SQL migration script is reviewable in `scripts\sql\migrations.sql`.
 Initialization is an explicit CLI mode of the existing .NET package, rather

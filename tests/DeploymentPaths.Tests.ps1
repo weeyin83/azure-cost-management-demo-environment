@@ -17,6 +17,9 @@ $runtimeName = 'test-orders'
 $runtimeServer = 'test-prod'
 $failInitialization = $false
 $emptyInitializationFailure = $false
+$tenant = '22222222-2222-2222-2222-222222222222'
+$cliTenant = $tenant
+$missingSqlAdministrator = $false
 
 function Assert-NativePath {
     param([string]$Path, [switch]$Existing)
@@ -33,8 +36,8 @@ function az {
     $global:LASTEXITCODE = 0
     $command = ($arguments | Select-Object -First 3) -join ' '
     switch -Wildcard ($command) {
-        'account show *' {
-            @{ id = $subscription; environmentName = 'AzureCloud' } | ConvertTo-Json -Compress
+        'account show*' {
+            @{ id = $subscription; environmentName = 'AzureCloud'; tenantId = $cliTenant } | ConvertTo-Json -Compress
         }
         'deployment sub show' {
             $outputs = @{}
@@ -72,6 +75,17 @@ function az {
         'webapp show *' { @{ possibleOutboundIpAddresses = '203.0.113.10' } | ConvertTo-Json -Compress }
         'webapp config show' { '{}' }
         'sql server firewall-rule' { '[]' }
+        'sql server ad-admin' {
+            if ($arguments[[Array]::IndexOf($arguments, '--subscription') + 1] -ne $subscription -or
+                $arguments[[Array]::IndexOf($arguments, '--server') + 1] -ne $runtimeServer -or
+                $arguments[[Array]::IndexOf($arguments, '-g') + 1] -ne
+                    $(if ($runtimeServer -eq 'test-prod') { 'rg-finops-production' } else { 'rg-finops-development' })) {
+                throw 'SQL administrator discovery must target the explicit subscription and selected server/group.'
+            }
+            if ($missingSqlAdministrator) { '[]' } else {
+                ConvertTo-Json -InputObject @(@{ login = 'test-sql-administrators'; tenantId = $tenant }) -Compress
+            }
+        }
         'resource show *' { @{ tags = @{ Project = 'ContosoFinOpsDemo' } } | ConvertTo-Json -Compress }
         'monitor action-group list' { '[{"id":"test-action","tags":{"Project":"ContosoFinOpsDemo"}}]' }
         'deployment group *' {
@@ -119,8 +133,9 @@ function Mock-Dotnet {
         Assert-NativePath $arguments[[Array]::IndexOf($arguments, '--project') + 1] -Existing
         if ("--runtime-user=$runtimeName" -notin $arguments -or
             "--server=$runtimeServer.database.windows.net" -notin $arguments -or
-            "--runtime-client-id=$subscription" -notin $arguments) {
-            throw 'Database initialization must use the verified identity and selected environment server.'
+            "--runtime-client-id=$subscription" -notin $arguments -or
+            "--tenant-id=$tenant" -notin $arguments) {
+            throw 'Database initialization must use the verified identity, selected environment server and SQL tenant.'
         }
         $directory = @($arguments | Where-Object { $_ -like '--sql-script-directory=*' })
         if ($directory.Count -ne 1) { throw 'Missing SQL script directory.' }
@@ -184,6 +199,27 @@ if ($message -notlike '*exit code 43*' -or $message -notlike '*emitted no diagno
     throw "Initialization failure without output must still report its exit code: $message"
 }
 $emptyInitializationFailure = $false
+$cliTenant = '33333333-3333-3333-3333-333333333333'
+$before = $dotnetCalls.Count
+$message = $null
+try {
+    & (Join-Path $root 'scripts/Initialize-Database.ps1') -SubscriptionId $subscription `
+        -Environment Development -Dotnet Mock-Dotnet -Confirm:$false | Out-Null
+} catch { $message = $_.Exception.Message }
+if ($message -notlike "*az login --tenant $tenant*" -or $dotnetCalls.Count -ne $before) {
+    throw "A wrong CLI tenant must fail before running the database initializer: $message"
+}
+$cliTenant = $tenant
+$missingSqlAdministrator = $true
+$message = $null
+try {
+    & (Join-Path $root 'scripts/Initialize-Database.ps1') -SubscriptionId $subscription `
+        -Environment Development -Dotnet Mock-Dotnet -Confirm:$false | Out-Null
+} catch { $message = $_.Exception.Message }
+if ($message -notlike '*exactly one Entra administrator*' -or $dotnetCalls.Count -ne $before) {
+    throw "A missing SQL administrator must fail before running the database initializer: $message"
+}
+$missingSqlAdministrator = $false
 $staleOutputs = $true
 $calls.Clear()
 foreach ($phase in @('Network', 'Publish')) {

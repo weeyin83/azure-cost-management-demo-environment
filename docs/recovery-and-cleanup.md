@@ -17,6 +17,14 @@ application's runtime identity to change schema. No credentials are embedded.
 The generated SQL migration script is reviewable in `scripts\sql\migrations.sql`.
 Initialization is an explicit CLI mode of the existing .NET package, rather
 than a new sqlcmd/PowerShell SQL-module installation or a public web route.
+On failure, the PowerShell exception includes the .NET exit code and captured
+standard output/error, even if the caller discards normal script output. Use the
+underlying build, authentication or SQL error to diagnose the failure; the wrapper's
+failure message alone does not identify the cause. If no diagnostic output is
+emitted, verify that the selected .NET executable is allowed to run under local
+application-control policy. A nonzero exit never confirms schema or runtime
+success; earlier migration steps may already have completed. Remove temporary
+administrator network access on failure as well as success.
 `grant-database-access.sql` checks SID/type and excess roles/grants before
 granting SELECT/INSERT/UPDATE/DELETE on `dbo.Todo`. Initialization resolves the
 selected managed identity service principal read-only, checks its object ID/

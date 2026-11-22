@@ -15,6 +15,8 @@ $staleOutputs = $false
 $missingCustomer = $false
 $runtimeName = 'test-orders'
 $runtimeServer = 'test-prod'
+$failInitialization = $false
+$emptyInitializationFailure = $false
 
 function Assert-NativePath {
     param([string]$Path, [switch]$Existing)
@@ -123,6 +125,13 @@ function Mock-Dotnet {
         $directory = @($arguments | Where-Object { $_ -like '--sql-script-directory=*' })
         if ($directory.Count -ne 1) { throw 'Missing SQL script directory.' }
         Assert-NativePath ($directory[0] -replace '^--sql-script-directory=', '') -Existing
+        if ($failInitialization) {
+            Write-Output 'Applying reviewed migrations as the explicitly authenticated administrator.'
+            & pwsh -NoProfile -Command '[Console]::Error.WriteLine("SqlException: Login failed for the administrator."); exit 42'
+            $global:LASTEXITCODE = 42
+        } elseif ($emptyInitializationFailure) {
+            $global:LASTEXITCODE = 43
+        }
     } else { throw 'Unexpected mocked dotnet command.' }
 }
 
@@ -152,6 +161,29 @@ if (@($calls | Where-Object { ($_ | Select-Object -First 2) -join ' ' -eq 'webap
     $dotnetCalls.Count -ne 3 -or $archiveCalls.Count -ne 1) {
     throw 'Expected publication to four apps and initialization of both databases.'
 }
+$failInitialization = $true
+$message = $null
+try {
+    & (Join-Path $root 'scripts/Initialize-Database.ps1') -SubscriptionId $subscription `
+        -Environment Development -Dotnet Mock-Dotnet -Confirm:$false | Out-Null
+} catch { $message = $_.Exception.Message }
+if ($message -notlike '*exit code 42*' -or
+    $message -notlike '*Applying reviewed migrations*' -or
+    $message -notlike '*SqlException: Login failed for the administrator.*' -or
+    $message -notlike '*no runtime/schema success is claimed*') {
+    throw "Initialization failure must retain the native exit code, stdout and stderr: $message"
+}
+$failInitialization = $false
+$emptyInitializationFailure = $true
+$message = $null
+try {
+    & (Join-Path $root 'scripts/Initialize-Database.ps1') -SubscriptionId $subscription `
+        -Environment Development -Dotnet Mock-Dotnet -Confirm:$false | Out-Null
+} catch { $message = $_.Exception.Message }
+if ($message -notlike '*exit code 43*' -or $message -notlike '*emitted no diagnostic output*') {
+    throw "Initialization failure without output must still report its exit code: $message"
+}
+$emptyInitializationFailure = $false
 $staleOutputs = $true
 $calls.Clear()
 foreach ($phase in @('Network', 'Publish')) {

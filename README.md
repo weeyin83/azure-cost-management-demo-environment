@@ -268,3 +268,19 @@ ceiling; the UK South figures are not a quote for other regions.
 Budgets notify, not cap spending. One-worker
 B1 and Basic SQL are not zone resilient. Stopping apps does not stop plan charges.
 See the cost document for assumptions, allocation and real-data/Turbo gates.
+
+## Separately approved cost-spike drill
+
+The [cost-spike runbook](docs/cost-spike-demo.md) prepares a controlled demo:
+collect approximately ten days of baseline, then manually change both B1 plans
+to S3/one worker with Azure-hosted restoration after 20 hours. The Sweden Central
+reference additional compute is approximately GBP 13.07 including assumed VAT,
+within a separately approved GBP 20 allowance with rollback headroom.
+Production apps can restart. Budgets and scheduled recovery are not hard caps.
+
+`scripts/Invoke-CostSpikeDemo.ps1` provides Inspect, Prepare, Start, Status,
+Restore and Cleanup phases. Inspect is read-only; Prepare creates guardrails
+but does not resize; Start requires explicit spend and budget acknowledgment.
+Connect Turbo360 before baseline collection. Real cost/alert data is delayed,
+and ten days does not guarantee Azure's native anomaly detector will trigger.
+This deliberately labelled drill is not organic demand or genuine savings.

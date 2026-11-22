@@ -9,9 +9,11 @@ function Invoke-SpikeArm {
     if ($null -eq $Body) { return Invoke-AzJson $arguments }
     $file = Join-Path ([IO.Path]::GetTempPath()) "cost-spike-$([guid]::NewGuid()).json"
     try {
-        $Body | ConvertTo-Json -Depth 60 | Set-Content -LiteralPath $file
+        $Body | ConvertTo-Json -Depth 60 | Set-Content -LiteralPath $file -WhatIf:$false
         Invoke-AzJson ($arguments + @('--body', "@$file"))
-    } finally { Remove-Item -LiteralPath $file }
+    } finally {
+        if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -WhatIf:$false }
+    }
 }
 
 function Get-SpikePlan {
@@ -86,15 +88,15 @@ function Get-SpikeEstimate {
         allowanceGross = 20
         pricedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
     }
-    if ($estimate.additional24HoursGross + $estimate.automationReserveGross -gt 20) {
+    if ($increment * 24 * [decimal]1.2 + $estimate.automationReserveGross -gt 20) {
         throw '24-hour additional compute plus GBP 2 Automation reserve exceeds the approved GBP 20 allowance.'
     }
     $estimate
 }
 
 function Get-SpikeBudgetPreview {
-    param([object[]]$Plans, [hashtable]$Estimate)
-    $now = [DateTimeOffset]::UtcNow
+    param([object[]]$Plans, [hashtable]$Estimate, [DateTimeOffset]$Now = [DateTimeOffset]::UtcNow)
+    $now = $Now
     if ($now.AddHours(24).Month -ne $now.Month) { throw 'Do not start across a month boundary; rerun Inspect next month.' }
     $scope = "/subscriptions/$SubscriptionId"
     $query = Invoke-SpikeArm POST "$scope/providers/Microsoft.CostManagement/query" @{
@@ -121,6 +123,9 @@ function Get-SpikeBudgetPreview {
     }
     if (($now - $lastDate).TotalHours -gt 96 -or $total -le 0) { throw 'Billed baseline is stale or nonpositive; wait for valid cost data.' }
     $pendingHours = [math]::Max(0, ($now - $lastDate).TotalHours)
+    if ($lastDate -gt $now -or $lastDate.Month -ne $now.Month -or $lastDate.Year -ne $now.Year) {
+        throw 'Cost rows are outside the current billing month.'
+    }
     $pending = 2 * $Estimate.b1HourlyNet * ($pendingHours + 24)
     $halfSpike = ($Estimate.additional20HoursGross / [decimal]1.2) / 2
     @{
@@ -205,6 +210,45 @@ function Wait-SpikeJob {
     throw "Automation verification job $JobId did not complete in time. No scale-up is allowed."
 }
 
+function Assert-SpikeRecoveryAccess {
+    param([hashtable]$State)
+    $account = Invoke-SpikeArm GET $accountId
+    $principal = $account.identity.principalId
+    if ([string]::IsNullOrWhiteSpace($principal)) { throw 'Recovery account has no managed identity.' }
+    $definitions = @($State.cleanupIds | Where-Object { $_ -like '*/roleDefinitions/*' })
+    $assignments = @($State.cleanupIds | Where-Object { $_ -like '*/roleAssignments/*' })
+    if ($definitions.Count -ne 1 -or $assignments.Count -ne 2) { throw 'Recovery permissions were not recorded correctly.' }
+    $role = Invoke-SpikeArm GET $definitions[0] -Api '2022-04-01'
+    $actions = @($role.properties.permissions[0].actions | Sort-Object)
+    if (@($role.properties.permissions).Count -ne 1 -or
+        @($role.properties.permissions[0].notActions).Count -ne 0 -or
+        @($role.properties.permissions[0].dataActions).Count -ne 0 -or
+        ($actions -join ',') -ne 'Microsoft.Web/serverfarms/read,Microsoft.Web/serverfarms/write') {
+        throw 'Recovery custom role no longer has exactly plan read/write permissions.'
+    }
+    foreach ($assignmentId in $assignments) {
+        $assignedPlan = ($assignmentId -split '/providers/Microsoft.Authorization/roleAssignments/')[0]
+        if ($assignedPlan -notin $State.plans.id) { throw 'Recovery assignment is not scoped to an approved plan.' }
+        $assignment = Invoke-SpikeArm GET $assignmentId -Api '2022-04-01'
+        if ($assignment.properties.principalId -ne $principal -or $assignment.properties.roleDefinitionId -ne $definitions[0]) {
+            throw 'Recovery role assignment no longer targets the correct identity/role.'
+        }
+    }
+}
+
+function Invoke-SpikeVerificationJob {
+    param([hashtable]$State)
+    Assert-SpikeRecoveryAccess $State
+    $jobId = [guid]::NewGuid().ToString()
+    [void](Invoke-SpikeArm PUT "$accountId/jobs/$jobId" @{
+        properties = @{ runbook = @{ name = 'Restore-CostSpike' }; parameters = @{
+            StateJson = ($State | ConvertTo-Json -Depth 40 -Compress); Mode = 'Verify'
+        } }
+    })
+    Wait-SpikeJob $jobId
+    $jobId
+}
+
 function Invoke-SpikeScheduleCreation {
     param([hashtable]$State, [string]$Name, [DateTimeOffset]$StartTime, [switch]$Recurring)
     $properties = @{ startTime = $StartTime.ToString('o'); timeZone = 'UTC'; frequency = 'OneTime'; description = $State.runId }
@@ -261,4 +305,48 @@ function Invoke-SpikeBudgetCreation {
         (@($observed.properties.filter.dimensions.values | Sort-Object) -join ',') -ne
         (@($State.plans.id | Sort-Object) -join ',') -or
         -not $observed.properties.notifications.DemoActual.enabled) { throw 'Demo budget verification failed.' }
+}
+
+function Assert-SpikeCleanup {
+    param([hashtable]$State)
+    $rolePattern = "^/subscriptions/$SubscriptionId/providers/Microsoft.Authorization/roleDefinitions/[0-9a-f-]{36}$"
+    $alertId = "/subscriptions/$SubscriptionId/resourceGroups/rg-finops-development/providers/Microsoft.Insights/metricAlerts/contoso-cost-spike-job-failed"
+    $assignments = @()
+    $roles = @()
+    foreach ($id in $State.cleanupIds) {
+        if ($id -eq $accountId -or $id -eq $alertId) { continue }
+        if ($id -match $rolePattern) { $roles += $id; continue }
+        $planId = ($id -split '/providers/Microsoft.Authorization/roleAssignments/')[0]
+        if ($planId -in $State.plans.id -and $id -match '/roleAssignments/[0-9a-f-]{36}$') { $assignments += $id; continue }
+        throw "Invalid exact guardrail cleanup scope: $id"
+    }
+    if (@($State.cleanupIds).Count -ne 5 -or $assignments.Count -ne 2 -or $roles.Count -ne 1 -or
+        @($State.cleanupIds | Sort-Object -Unique).Count -ne 5 -or
+        $accountId -notin $State.cleanupIds -or $alertId -notin $State.cleanupIds) {
+        throw 'Cleanup requires the exact account, failure alert, custom role and two plan-scoped assignments.'
+    }
+    $role = Invoke-SpikeArm GET $roles[0] -Api '2022-04-01'
+    if ($role.properties.roleName -ne "Contoso cost spike plan recovery $SubscriptionId" -or
+        $role.properties.type -ne 'CustomRole') { throw 'Cleanup custom role ownership does not match this demo.' }
+    $account = Invoke-SpikeArm GET $accountId
+    foreach ($id in $assignments) {
+        $assignment = Invoke-SpikeArm GET $id -Api '2022-04-01'
+        if ($assignment.properties.roleDefinitionId -ne $roles[0] -or
+            $assignment.properties.principalId -ne $account.identity.principalId) {
+            throw 'Cleanup role assignment ownership does not match this demo.'
+        }
+    }
+    if ($State.ownsBudget) {
+        $budget = Invoke-SpikeArm GET "/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/budgets/contoso-cost-spike" -Api '2024-08-01'
+        if ((@($budget.properties.filter.dimensions.values | Sort-Object) -join ',') -ne
+            (@($State.plans.id | Sort-Object) -join ',') -or $budget.properties.amount -ne $State.budget.amountNetGbp) {
+            throw 'Demo budget was changed externally; review before cleanup.'
+        }
+    }
+    if ($State.ownsAnomaly) {
+        $anomaly = Invoke-SpikeArm GET "/subscriptions/$SubscriptionId/providers/Microsoft.CostManagement/scheduledActions/contoso-cost-spike-anomaly" -Api '2025-03-01'
+        if ($anomaly.properties.displayName -ne 'Contoso cost spike native anomaly') {
+            throw 'Demo anomaly rule was changed externally; review before cleanup.'
+        }
+    }
 }

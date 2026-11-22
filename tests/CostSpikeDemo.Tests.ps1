@@ -56,9 +56,21 @@ function Reset-Fixture {
     $global:spikeTestFailVerify = $false
     $global:spikeTestUnsupported = $false
     $global:spikeTestFailRestore = $false
+    $global:spikeTestRevokedIdentity = $false
+    $global:spikeTestBadBinding = $false
+    $global:spikeTestUnhealthy = $false
     $global:spikeTestCalls.Clear()
 }
 function Start-Sleep { param([int]$Seconds) }
+function New-Item { param([string]$ItemType, [string]$Path, [switch]$Force) }
+function Set-Content {
+    param([string]$LiteralPath, [Parameter(ValueFromPipeline)]$Value, [switch]$WhatIf)
+    process {
+        if ($LiteralPath -notlike '*/.artifacts/cost-spike/*') {
+            Microsoft.PowerShell.Management\Set-Content -LiteralPath $LiteralPath -Value $Value -WhatIf:$false
+        }
+    }
+}
 function Invoke-RestMethod {
     param([string]$Uri, [int]$TimeoutSec)
     if ($Uri -notlike 'https://prices.azure.com/*') { throw "Unexpected public HTTP: $Uri" }
@@ -70,6 +82,7 @@ function Invoke-RestMethod {
 function Invoke-WebRequest {
     param([string]$Uri, [int]$TimeoutSec)
     if ($Uri -notlike 'https://*.azurewebsites.net/health/ready') { throw "Unexpected app HTTP: $Uri" }
+    if ($global:spikeTestUnhealthy) { throw 'Simulated forbidden/unhealthy app' }
     @{ StatusCode = 200; Content = 'Healthy' }
 }
 function az {
@@ -118,6 +131,20 @@ function az {
             $ids = @($global:spikeTestPlans.Keys | Sort-Object | ForEach-Object { "$_/providers/Microsoft.Authorization/roleAssignments/22222222-2222-2222-2222-222222222222" }) +
                 @("$scope/resourceGroups/rg-finops-development/providers/Microsoft.Insights/metricAlerts/contoso-cost-spike-job-failed",
                     $accountId, "$scope/providers/Microsoft.Authorization/roleDefinitions/33333333-3333-3333-3333-333333333333")
+            foreach ($assignmentId in $ids | Where-Object { $_ -like '*/roleAssignments/*' }) {
+                $global:spikeTestResources[$assignmentId] = @{
+                    properties = @{ principalId = $subscription; roleDefinitionId = $ids[-1] }
+                }
+            }
+            $global:spikeTestResources[$ids[-1]] = @{
+                properties = @{
+                    roleName = "Contoso cost spike plan recovery $subscription"; type = 'CustomRole'
+                    permissions = @(@{
+                        actions = @('Microsoft.Web/serverfarms/read', 'Microsoft.Web/serverfarms/write')
+                        notActions = @(); dataActions = @()
+                    })
+                }
+            }
             @{ properties = @{ provisioningState = 'Succeeded'; outputs = @{ cleanupIds = @{ value = $ids } } } }; break
         }
         'rest *' {
@@ -130,6 +157,9 @@ function az {
                 $path = $arguments[[Array]::IndexOf($arguments, '--body') + 1].Substring(1)
                 if ($id -notlike '*/draft/content') { $body = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable }
             }
+            if ($method -eq 'GET' -and $id -like '*/draft/content') {
+                return Get-Content -LiteralPath (Join-Path $root 'scripts/automation/Restore-CostSpike.ps1') -Raw
+            }
             if ($method -eq 'DELETE') {
                 if ($id -eq $accountId) { $global:spikeTestPrepared = $false }
                 $global:spikeTestResources.Remove($id)
@@ -137,10 +167,12 @@ function az {
             }
             if ($global:spikeTestPlans.ContainsKey($id)) {
                 if ($method -eq 'PATCH') {
-                    if ($body.sku.name -eq 'S3' -and $global:spikeTestFailScale -and $id -like '*/rg-finops-shared/*') { throw 'Simulated second-plan scale failure' }
-                    if ($body.sku.name -eq 'B1' -and $global:spikeTestFailRestore -and $id -like '*/rg-finops-development/*') { throw 'Simulated first-plan restore failure' }
-                    $global:spikeTestPlans[$id].sku = $body.sku
-                    $global:spikeTestPlans[$id].tags = $body.tags
+                    if ($body.ContainsKey('sku')) {
+                        if ($body.sku.name -eq 'S3' -and $global:spikeTestFailScale -and $id -like '*/rg-finops-shared/*') { throw 'Simulated second-plan scale failure' }
+                        if ($body.sku.name -eq 'B1' -and $global:spikeTestFailRestore -and $id -like '*/rg-finops-development/*') { throw 'Simulated first-plan restore failure' }
+                        $global:spikeTestPlans[$id].sku = $body.sku
+                    }
+                    if ($body.ContainsKey('tags')) { $global:spikeTestPlans[$id].tags = $body.tags }
                 }
                 $global:spikeTestPlans[$id]; break
             }
@@ -148,7 +180,8 @@ function az {
             if ($app.Count) { $app[0]; break }
             if ($id -like '*/Microsoft.CostManagement/query') {
                 $date = [DateTimeOffset]::UtcNow.AddDays($(if ($global:spikeTestStaleCosts) { -8 } else { -1 })).ToString('yyyyMMdd')
-                $rows = if ($global:spikeTestMissingCosts) { @() } else { ,@([decimal]0.50, [int]$date, $global:spikeTestCurrency) }
+                $rows = @()
+                if (-not $global:spikeTestMissingCosts) { $rows = ,@([decimal]0.50, [int]$date, $global:spikeTestCurrency) }
                 @{ properties = @{ columns = @(@{ name = 'Cost' }, @{ name = 'UsageDate' }, @{ name = 'Currency' }); rows = $rows } }; break
             }
             if ($id -like '*/Microsoft.CostManagement/scheduledActions') { @{ value = @() }; break }
@@ -160,6 +193,9 @@ function az {
             if ($id -eq "$accountId/variables/CostSpikeState") {
                 $global:spikeTestVariable = $body
                 $body; break
+            }
+            if ($id -eq $accountId) {
+                @{ identity = @{ principalId = $(if ($global:spikeTestRevokedIdentity) { 'revoked' } else { $subscription }) } }; break
             }
             if ($id -like '*/draft/content' -or $id -like '*/publish') { @{}; break }
             if ($id -eq "$accountId/runbooks/Restore-CostSpike") { @{ properties = @{ state = 'Published' } }; break }
@@ -174,7 +210,12 @@ function az {
             if ($id -like "$accountId/jobs/*") {
                 @{ properties = @{ status = $(if ($global:spikeTestFailVerify) { 'Failed' } else { 'Completed' }) } }; break
             }
-            if ($global:spikeTestResources.ContainsKey($id)) { $global:spikeTestResources[$id]; break }
+            if ($global:spikeTestResources.ContainsKey($id)) {
+                if ($global:spikeTestBadBinding -and $id -like '*/jobSchedules/*') {
+                    $global:spikeTestResources[$id].properties.parameters.Mode = 'Verify'
+                }
+                $global:spikeTestResources[$id]; break
+            }
             throw "Unexpected mocked ARM: $method $id"
         }
         default { throw "Unexpected mocked CLI: $command" }
@@ -204,7 +245,10 @@ $global:spikeTestReviewedBudget = 0
 $SubscriptionId = $subscription
 $estimate = Get-SpikeEstimate swedencentral
 Assert-Test ($estimate.additional20HoursGross -eq [decimal]13.07 -and $estimate.additional24HoursGross -eq [decimal]15.68) 'Reference spend arithmetic failed.'
-$global:spikeTestS3Price = [decimal]0.33
+Assert-Fails { Get-SpikeBudgetPreview @($global:spikeTestPlans.Values) $estimate -Now ([DateTimeOffset]'2026-12-31T12:00:00Z') } 'month boundary'
+$global:spikeTestS3Price = [decimal]0.326
+Assert-Test ((Get-SpikeEstimate swedencentral).additional24HoursGross -eq 18) 'The exact GBP 20 allowance boundary should pass.'
+$global:spikeTestS3Price = [decimal]0.32600001
 Assert-Fails { Get-SpikeEstimate swedencentral } 'exceeds'
 Reset-Fixture
 $global:spikeTestMissingCosts = $true
@@ -224,6 +268,10 @@ Reset-Fixture
 $global:spikeTestUnsupported = $true
 Assert-Fails { Invoke-Demo Prepare } 'availability'
 Reset-Fixture
+$global:spikeTestUnhealthy = $true
+Assert-Fails { Invoke-Demo Prepare } 'Readiness failed'
+Assert-Test ((Get-PlanWrites).Count -eq 0) 'An unhealthy/forbidden application must block Prepare.'
+Reset-Fixture
 Set-ReviewedBudget
 Invoke-Demo Prepare -WhatIf | Out-Null
 Assert-Test (-not $global:spikeTestPrepared) 'Prepare WhatIf wrote resources.'
@@ -232,6 +280,14 @@ $global:spikeTestFailVerify = $true
 Assert-Fails { Invoke-Demo Start } 'verification job'
 Assert-Test ((Get-PlanWrites).Count -eq 0) 'Failed guardrail verification must not resize.'
 $global:spikeTestFailVerify = $false
+$global:spikeTestRevokedIdentity = $true
+Assert-Fails { Invoke-Demo Start } 'Recovery role assignment'
+Assert-Test ((Get-PlanWrites).Count -eq 0) 'Changed recovery permissions must block scale-up.'
+$global:spikeTestRevokedIdentity = $false
+$savedBudget = $global:spikeTestReviewedBudget
+$global:spikeTestReviewedBudget += 1
+Assert-Fails { Invoke-Demo Start } 'ReviewedBudgetAmount'
+$global:spikeTestReviewedBudget = $savedBudget
 Invoke-Demo Start -WhatIf | Out-Null
 Assert-Test ((Get-PlanWrites).Count -eq 0) 'Start WhatIf resized.'
 Invoke-Demo Start | Out-Null
@@ -251,6 +307,12 @@ Invoke-Demo Restore | Out-Null
 $before = (Get-PlanWrites).Count
 Invoke-Demo Restore | Out-Null
 Assert-Test ((Get-PlanWrites).Count -eq $before) 'Repeated restoration must not write plans.'
+$savedVariable = $global:spikeTestVariable.properties.value
+$corrupt = $savedVariable | ConvertFrom-Json | ConvertFrom-Json -AsHashtable
+$corrupt.cleanupIds[0] = @($global:spikeTestPlans.Keys)[0]
+$global:spikeTestVariable.properties.value = ConvertTo-Json -InputObject ($corrupt | ConvertTo-Json -Depth 40 -Compress) -Compress
+Assert-Fails { Invoke-Demo Cleanup } 'cleanup scope'
+$global:spikeTestVariable.properties.value = $savedVariable
 Invoke-Demo Cleanup | Out-Null
 Assert-Test (-not $global:spikeTestPrepared) 'Cleanup did not delete guardrails.'
 Assert-Test (@($global:spikeTestPlans.Values | Where-Object { $_.sku.name -eq 'B1' }).Count -eq 2) 'Cleanup changed the baseline.'
@@ -264,9 +326,15 @@ Assert-Test ((Get-PlanWrites).Count -eq 0) 'Schedule failure must block all scal
 Reset-Fixture
 Set-ReviewedBudget
 Invoke-Demo Prepare | Out-Null
+$global:spikeTestBadBinding = $true
+Assert-Fails { Invoke-Demo Start } 'schedule/binding'
+Assert-Test ((Get-PlanWrites).Count -eq 0) 'A mismatched rollback binding must block scaling.'
+Reset-Fixture
+Set-ReviewedBudget
+Invoke-Demo Prepare | Out-Null
 $global:spikeTestFailScale = $true
 Assert-Fails { Invoke-Demo Start } 'baseline was restored'
-Assert-Test (@($global:spikeTestPlans.Values | Where-Object { $_.sku.name -eq 'B1' -and -not $_.tags.CostSpikeRun }).Count -eq 2) 'Partial start must compensate both plans.'
+Assert-Test (@($global:spikeTestPlans.Values | Where-Object { $_.sku.name -eq 'B1' -and -not $_.tags['CostSpikeRun'] }).Count -eq 2) 'Partial start must compensate both plans.'
 
 Reset-Fixture
 Set-ReviewedBudget
@@ -280,4 +348,28 @@ $dev = @($global:spikeTestPlans.Values | Where-Object { $_.id -like '*/rg-finops
 $dev.sku.name = 'S2'
 Assert-Fails { Invoke-Demo Restore } 'Unexpected intervening'
 Assert-Test ($dev.sku.name -eq 'S2') 'An intervening resize must not be overwritten.'
+
+& {
+    $savedEndpoint = $env:IDENTITY_ENDPOINT
+    $savedHeader = $env:IDENTITY_HEADER
+    try {
+        $env:IDENTITY_ENDPOINT = 'http://identity.test/token'
+        $env:IDENTITY_HEADER = 'test-header'
+        function Invoke-RestMethod {
+            param($Method, $Uri, $Headers, $TimeoutSec)
+            if ($Uri -like 'http://identity.test/*') {
+                Assert-Test ($Headers['X-IDENTITY-HEADER'] -eq 'test-header' -and
+                    $Uri -like '*resource=https%3A%2F%2Fmanagement.azure.com%2F*') 'Token audience/header mismatch.'
+                return @{ access_token = 'test-token' }
+            }
+            Assert-Test ($Method -eq 'GET' -and $Uri -eq "https://management.azure.com$($dev.id)?api-version=2025-03-01" -and
+                $Headers.Authorization -eq 'Bearer test-token') 'Managed-identity ARM boundary mismatch.'
+            @{ id = $dev.id }
+        }
+        Assert-Test ((Invoke-SpikeManagedArm GET $dev.id $null).id -eq $dev.id) 'Managed-identity response was not retained.'
+    } finally {
+        $env:IDENTITY_ENDPOINT = $savedEndpoint
+        $env:IDENTITY_HEADER = $savedHeader
+    }
+}
 Write-Output 'Cost-spike tests passed. All Azure, pricing, application requests and sleeps were mocked.'

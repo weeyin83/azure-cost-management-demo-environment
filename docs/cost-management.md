@@ -147,7 +147,26 @@ After separate resize approval, use only:
 Inspect what-if; preserve tags; avoid restarting/reconfiguring production
 by redeploying root. Compare performance and costs after data arrives.
 Retention/sampling/export lifecycle and Basic-vs-S0 are other *conditional*
-opportunities. Do not manufacture load, anomalies, recommendations or savings.
+opportunities. Do not manufacture load, detector results, recommendations or savings.
+
+### Separately approved, deliberately incurred spike
+
+The [controlled cost-spike drill](cost-spike-demo.md) is an explicitly labelled
+exception for demonstrating real overprovisioning spend, not workload growth or
+an Azure price change. Both Linux B1/one-worker plans become S3/one worker for
+20 hours, with durable scheduled restoration and failure notifications.
+Sweden Central reference rates of GBP 0.0135 and 0.2857 per worker-hour produce
+approximately GBP 13.07 extra compute including assumed VAT, or GBP 15.68 at
+24 hours. Execution reprices and checks the GBP 20 allowance with a GBP 2
+Automation reserve; no hard cap or free job-minute allowance is assumed.
+
+A dedicated actual-cost budget filters the two plan IDs and preserves existing
+budgets. Native anomaly detection remains best-effort: it evaluates subscription
+history over 60 days, normally 36 hours after the UTC day ends. Ten baseline days
+and a visible resource-level spike cannot guarantee its alert. Budget and
+Turbo360 notifications are separate mechanisms, not native anomaly evidence.
+Connect Turbo360 before baseline collection and reconcile actual imported
+costs after ingestion. Show the deliberate resize and later reversal honestly.
 
 ## Turbo360 trial gates before filming
 

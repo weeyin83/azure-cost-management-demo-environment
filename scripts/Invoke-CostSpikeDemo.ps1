@@ -94,6 +94,15 @@ if ($Phase -eq 'Prepare') {
     [void](Invoke-Az @('rest', '--subscription', $SubscriptionId, '--method', 'put',
         '--url', "https://management.azure.com$accountId/runbooks/Restore-CostSpike/draft/content?api-version=2024-10-23",
         '--headers', 'Content-Type=text/plain', '--body', "@$(Join-Path $PSScriptRoot 'automation/Restore-CostSpike.ps1')"))
+    $uploaded = $false
+    $expectedContent = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'automation/Restore-CostSpike.ps1') -Raw).TrimEnd()
+    for ($poll = 0; $poll -lt 30; $poll++) {
+        $content = Invoke-Az @('rest', '--subscription', $SubscriptionId, '--method', 'get',
+            '--url', "https://management.azure.com$accountId/runbooks/Restore-CostSpike/draft/content?api-version=2024-10-23")
+        if ($content.TrimEnd() -eq $expectedContent) { $uploaded = $true; break }
+        Start-Sleep -Seconds 10
+    }
+    if (-not $uploaded) { throw 'Uploaded runbook content could not be verified. No scale-up is allowed.' }
     [void](Invoke-Az @('rest', '--subscription', $SubscriptionId, '--method', 'post',
         '--url', "https://management.azure.com$accountId/runbooks/Restore-CostSpike/publish?api-version=2024-10-23"))
     $published = $false
@@ -103,12 +112,7 @@ if ($Phase -eq 'Prepare') {
         Start-Sleep -Seconds 10
     }
     if (-not $published) { throw 'Runbook publication was not verified.' }
-    $jobId = [guid]::NewGuid().ToString()
-    [void](Invoke-SpikeArm PUT "$accountId/jobs/$jobId" @{
-        properties = @{ runbook = @{ name = 'Restore-CostSpike' }; parameters = @{ StateJson = ($state | ConvertTo-Json -Depth 40 -Compress); Mode = 'Verify' } }
-    })
-    Wait-SpikeJob $jobId
-    $state.verificationJobId = $jobId
+    $state.verificationJobId = Invoke-SpikeVerificationJob $state
     if ($anomaly.Count -eq 0) {
         $state.ownsAnomaly = $true
         Invoke-SpikeStateWrite $state
@@ -138,8 +142,11 @@ if ($Phase -eq 'Start') {
         throw "Acknowledge the deliberate spend and pass -ReviewedBudgetAmount $($budget.amountNetGbp) from a current Inspect preview."
     }
     Wait-SpikeJob $state.verificationJobId
+    $runbook = Invoke-SpikeArm GET "$accountId/runbooks/Restore-CostSpike"
+    if ($runbook.properties.state -ne 'Published') { throw 'Rollback runbook is no longer published.' }
     Assert-SpikeConnectivity $inventory
     if (-not $PSCmdlet.ShouldProcess($SubscriptionId, 'Arm verified 20-hour rollback, create demo budget, and resize BOTH B1 plans to S3/one worker')) { return }
+    $state.verificationJobId = Invoke-SpikeVerificationJob $state
     $state.estimate = $estimate; $state.budget = $budget
     $state.startedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
     $state.rollbackAtUtc = [DateTimeOffset]::UtcNow.AddHours(20).ToString('o')
@@ -171,6 +178,9 @@ if ($Phase -eq 'Start') {
         } catch { throw "Start failed: $failure. Recovery also failed: $($_.Exception.Message). Inspect Automation and run Restore immediately." }
         throw "Start failed and baseline was restored: $failure"
     }
+    $evidenceDirectory = Join-Path $root '.artifacts/cost-spike'
+    [void](New-Item -ItemType Directory -Path $evidenceDirectory -Force)
+    $state | ConvertTo-Json -Depth 40 | Set-Content -LiteralPath (Join-Path $evidenceDirectory "$($state.runId).json")
     Write-Output "Verified both plans on S3/one worker. Rollback UTC: $($state.rollbackAtUtc). Check Status and actual billing data later."
     return
 }
@@ -184,6 +194,7 @@ if ($Phase -eq 'Restore') {
 }
 if ($Phase -eq 'Cleanup') {
     Assert-SpikeBaseline $inventory.plans
+    Assert-SpikeCleanup $state
     if (-not $PSCmdlet.ShouldProcess($SubscriptionId, 'Delete only demo guardrail resources and demo-owned alerts/budget AFTER exporting evidence')) { return }
     foreach ($plan in $inventory.plans) { Assert-SpikeBaseline @((Get-SpikePlan $plan.id)) }
     if ($state.ownsBudget) {
@@ -194,12 +205,20 @@ if ($Phase -eq 'Cleanup') {
         [void](Invoke-Az @('rest', '--subscription', $SubscriptionId, '--method', 'delete',
             '--url', "https://management.azure.com$scope/providers/Microsoft.CostManagement/scheduledActions/contoso-cost-spike-anomaly?api-version=2025-03-01"))
     }
-    foreach ($id in $state.cleanupIds) {
+    foreach ($id in @($state.cleanupIds | Where-Object { $_ -ne $accountId }) + @($accountId)) {
         if ($id -in $state.plans.id -or ($id -notlike "$scope/*")) { throw 'Invalid guardrail cleanup scope.' }
         $api = if ($id -match '/roleAssignments/|/roleDefinitions/') { '2022-04-01' }
             elseif ($id -match '/metricAlerts/') { '2026-01-01' } else { '2024-10-23' }
         [void](Invoke-Az @('rest', '--subscription', $SubscriptionId, '--method', 'delete',
             '--url', "https://management.azure.com${id}?api-version=$api"))
     }
+    $removed = $false
+    for ($poll = 0; $poll -lt 30; $poll++) {
+        $remaining = Invoke-AzJson @('resource', 'list', '--subscription', $SubscriptionId, '-g', 'rg-finops-development',
+            '--resource-type', 'Microsoft.Automation/automationAccounts')
+        if (-not ($remaining | Where-Object { $_.id -eq $accountId })) { $removed = $true; break }
+        Start-Sleep -Seconds 10
+    }
+    if (-not $removed) { throw 'Automation account deletion did not complete; inspect residual schedules and resources.' }
     Write-Output 'Demo guardrails removed. Plans/apps/databases and existing budgets were not deleted. Verify final billing after ingestion.'
 }

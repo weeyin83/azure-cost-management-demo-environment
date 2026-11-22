@@ -128,6 +128,16 @@ of SQL Server, Entra, Blob or Azure networking.
 
 ## Teardown safeguards
 
+For the separately approved [cost-spike drill](cost-spike-demo.md), use
+`Invoke-CostSpikeDemo.ps1 -Phase Restore` before its targeted Cleanup phase.
+The Azure-hosted runbook restores both exact demo-owned plans independently;
+one failure does not skip the other. Plan/run-owner mismatches fail explicitly.
+The 20-hour deadline and hourly retries are not guaranteed spending limits.
+Check failure emails, live SKUs and all four readiness endpoints.
+Cleanup removes only demo guardrails/alerts after baseline verification, not
+the estate or its existing budgets. Save job output and the ignored run snapshot
+first; do not tear down the account while an expensive plan remains elevated.
+
 Export evidence first. Review all three exact groups and project tags. Script
 preflight stops if it finds unrelated/untagged resources; child/configuration
 tag exceptions are explicit. No wildcards, broad filesystem deletion or active

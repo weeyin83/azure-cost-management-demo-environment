@@ -41,6 +41,6 @@ output cleanupIds array = [
   developmentAccess.outputs.assignmentId
   productionAccess.outputs.assignmentId
   account.outputs.failureAlertId
-  account.outputs.accountId
   role.id
+  account.outputs.accountId
 ]
